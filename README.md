@@ -1,43 +1,61 @@
-# AI-Budget-Model
+# AI Budget Model Monorepo
 
 ## Overview
-This project downloads a personal finance dataset from Kaggle, then copies only CSV files into the local `data/` folder for analysis.
+This repository is organized as a monorepo with three main workstreams:
+1. Notebook-based training and experimentation
+2. HTTP API service for model inference
+3. Telegram chatbot that calls the API
 
 ## Project Structure
-```
+```text
 AI-Budget-Model/
-├── main.py
-├── cleaned_budget_data.csv
-├── personal_expense.ipynb
+├── data/
+├── models/
+├── notebooks/
+│   └── training/
+│       ├── expense_classification_models.ipynb
+│       ├── personal_expense.ipynb
+│       ├── export_tfidf_model.py
+│       └── README.md
+├── services/
+│   ├── model-api/
+│   │   ├── app/
+│   │   │   └── main.py
+│   │   ├── pyproject.toml
+│   │   └── README.md
+│   └── telegram-bot/
+│       ├── bot/
+│       │   └── main.py
+│       ├── pyproject.toml
+│       └── README.md
 ├── pyproject.toml
-├── README.md
-└── data/
-	 ├── expense_data_1.csv
-	 ├── expenses_income_summary.csv
-	 └── Personal_Finance_Dataset.csv
+└── README.md
 ```
 
-## Requirements
-- Python 3.10+
-- `kagglehub`
+## Quick Start
 
-## Setup
-1. Install dependencies:
-	```bash
-	pip install kagglehub
-	```
-2. Run the script:
-	```bash
-	python main.py
-	```
+### 1. Train and Export Model Artifact
+```bash
+python notebooks/training/export_tfidf_model.py
+```
 
-## What `main.py` Does
-1. Downloads dataset: `jg7fujhfydhgc/expenses-2024`
-2. Recursively finds all `.csv` files in the downloaded dataset
-3. Copies CSV files into local `./data/`
+Expected output artifact:
+- models/expense_classifier.joblib
 
-## Output
-After running, the terminal shows:
-- Dataset download location
-- Each copied CSV file
-- Total number of CSV files copied
+### 2. Start HTTP API
+```bash
+uvicorn app.main:app --app-dir services/model-api --reload
+```
+
+API endpoint:
+- POST /predict
+
+### 3. Start Telegram Bot
+Set environment variables first:
+- TELEGRAM_BOT_TOKEN
+- MODEL_API_PREDICT_URL (optional, default: http://localhost:8000/predict)
+
+Then run:
+```bash
+python services/telegram-bot/bot/main.py
+```

@@ -1,11 +1,20 @@
 [project]
 name = "ai-budget-model"
 version = "0.1.0"
-description = "Add your description here"
+description = "Monorepo for budget model training, API serving, and Telegram bot"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "jupyter>=1.1.1",
     "kagglehub>=1.0.0",
-    "pandas>=3.0.2",
+    "pandas>=2.2.2",
+    "numpy>=2.0.2",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.16.3",
+    "joblib>=1.5.2",
+    "fastapi>=0.116.0",
+    "uvicorn>=0.35.0",
+    "python-telegram-bot>=21.5",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.0.1",
 ]
