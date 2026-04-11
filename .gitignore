@@ -2,3 +2,4 @@
 clean_data/*
 data/*
 *.csv
+.vscode
