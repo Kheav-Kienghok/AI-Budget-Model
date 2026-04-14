@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import os
+import sys
+import types
+from pathlib import Path
+from typing import List
+
+import joblib
+import pandas as pd
+from scipy.sparse import hstack
+
+from ..schemas.transaction import Transaction
+from ..utils.text import clean_text
+
+
+_MODEL_ARTIFACT: dict | None = None
+
+
+def load_model() -> dict:
+	"""Load and cache the trained model artifact."""
+
+	global _MODEL_ARTIFACT
+	if _MODEL_ARTIFACT is not None:
+		return _MODEL_ARTIFACT
+
+	file_path = Path(__file__).resolve()
+	service_root = file_path.parents[2]
+	project_root = file_path.parents[4]
+	env_rel_path = os.getenv("MODEL_ARTIFACT_PATH", "models/expense_classifier.joblib")
+
+	env_path = Path(env_rel_path)
+	if env_path.is_absolute():
+		env_candidates = [env_path]
+	else:
+		# Support env paths relative to either the service root or project root.
+		env_candidates = [service_root / env_path, project_root / env_path]
+
+	# Compatibility shim: some older artifacts were pickled with a reference
+	# to a top-level `clean_text` function in the `__mp_main__` module.
+	# Ensure that module exists and exposes `clean_text`, even if uvicorn has
+	# already registered its own __mp_main__ entry point.
+	compat_module = sys.modules.get("__mp_main__") or types.ModuleType("__mp_main__")
+	compat_module.clean_text = clean_text
+	sys.modules["__mp_main__"] = compat_module
+
+	candidates = [
+		*env_candidates,
+		project_root / "models" / "expense_classifier.joblib",
+		project_root / "models" / "tfidf_expense_classifier.joblib",
+	]
+
+	for path in candidates:
+		if path.is_file():
+			_MODEL_ARTIFACT = joblib.load(path)
+			return _MODEL_ARTIFACT
+
+	raise RuntimeError(
+		"Model artifact not found. Expected at one of: "
+		f"{', '.join(str(p) for p in candidates)}. "
+		"Train and export the model first (see repository README).",
+	)
+
+
+def classify_transactions(transactions: List[Transaction]) -> list[str]:
+	"""Convert incoming transactions into predicted categories using the model.
+
+	Each Transaction is transformed into the same numeric/text feature space that
+	was used during training, then passed through the loaded model.
+	"""
+
+	if not transactions:
+		raise ValueError("No transactions provided for classification.")
+
+	artifact = load_model()
+	vectorizer = artifact["vectorizer"]
+	scaler = artifact["scaler"]
+	model = artifact["model"]
+	label_encoder = artifact["label_encoder"]
+	num_features = artifact.get(
+		"num_features", ["Amount", "Type", "Month", "Day_of_Week", "Is_Weekend"]
+	)
+
+	texts: list[str] = []
+	amounts: list[float] = []
+	types_num: list[int] = []
+	months: list[int] = []
+	days_of_week: list[int] = []
+	is_weekend_flags: list[int] = []
+
+	for tx in transactions:
+		texts.append(clean_text(tx.description))
+		amounts.append(float(tx.amount))
+
+		type_str = (tx.transaction_type or "").strip().lower()
+		types_num.append(1 if type_str == "income" else 0)
+
+		dt = tx.date
+		dow = dt.weekday()
+		month = dt.month
+		months.append(month)
+		days_of_week.append(dow)
+		is_weekend_flags.append(1 if dow in (5, 6) else 0)
+
+	df_num = pd.DataFrame(
+		{
+			"Amount": amounts,
+			"Type": types_num,
+			"Month": months,
+			"Day_of_Week": days_of_week,
+			"Is_Weekend": is_weekend_flags,
+		}
+	)
+
+	X_text = vectorizer.transform(texts)
+	X_num = scaler.transform(df_num[num_features])
+	X = hstack([X_text, X_num])
+
+	encoded_labels = model.predict(X)
+	categories = label_encoder.inverse_transform(encoded_labels)
+	return list(categories)

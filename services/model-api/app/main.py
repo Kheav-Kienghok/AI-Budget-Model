@@ -1,98 +1,199 @@
-import os
-import re
-from datetime import datetime
-from pathlib import Path
+from __future__ import annotations
 
-import joblib
-import numpy as np
+import io
+from typing import List
+
 import pandas as pd
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from scipy.sparse import hstack
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from pydantic import ValidationError
+
+from .core.model import classify_transactions, load_model
+from .schemas.transaction import Transaction
 
 
-class PredictRequest(BaseModel):
-    description: str = Field(..., min_length=1)
-    amount: float = 0.0
-    transaction_type: str = "Expense"
-    date: str = "2026-01-01"
+app = FastAPI(
+	title="Expense Category Prediction API",
+    description=(
+        "Predict expense categories from transaction descriptions. "
+        "Supports both JSON input and CSV file uploads."
+    ),
+    version="1.0.0",
+)
 
-
-class PredictResponse(BaseModel):
-    predicted_category: str
-
-
-app = FastAPI(title="Expense Classifier API", version="0.1.0")
-
-
-def clean_text(text: str) -> str:
-    text = str(text).lower()
-    text = re.sub(r"\b(gasoline|petrol|fuel|diesel)\b", "petrol", text)
-    text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
-    return text.strip()
-
-
-def get_model_path() -> Path:
-    env_path = os.getenv("MODEL_ARTIFACT_PATH")
-    if env_path:
-        return Path(env_path)
-    return Path(__file__).resolve().parents[3] / "models" / "expense_classifier.joblib"
-
-
-def load_artifact() -> dict:
-    model_path = get_model_path()
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"Model artifact not found at {model_path}. Run notebooks/training/export_tfidf_model.py first."
-        )
-    return joblib.load(model_path)
+@app.on_event("startup")
+def _startup() -> None:  # pragma: no cover - simple startup hook
+	# Ensure model is loaded at startup so first request is fast and fails early
+	load_model()
 
 
 @app.get("/health")
-def health() -> dict:
-    return {"status": "ok"}
+def health() -> dict[str, str]:
+	"""Health check endpoint."""
+
+	try:
+		load_model()
+	except Exception:  # noqa: BLE001
+		return {"status": "error"}
+	return {"status": "ok"}
 
 
-@app.post("/predict", response_model=PredictResponse)
-def predict(payload: PredictRequest) -> PredictResponse:
-    try:
-        artifact = load_artifact()
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+@app.post("/classify")
+@app.post("/predict")
+async def classify(request: Request, file: List[UploadFile] | None = File(None)) -> dict:
+	"""Predict expense categories from JSON or CSV upload.
 
-    vectorizer = artifact["vectorizer"]
-    scaler = artifact["scaler"]
-    model = artifact["model"]
-    label_encoder = artifact["label_encoder"]
-    num_features = artifact["num_features"]
+	- For JSON (`application/json`):
+	  * Accepts either a single object or a list of objects.
+	  * Object fields: `date`, `description`, `amount`, and either
+		`transaction_type` or `type` ("Income"/"Expense").
 
-    cleaned = clean_text(payload.description)
+	- For multipart form-data (`multipart/form-data`):
+	  * Accepts one or more `.csv` files via `file` field.
+	  * Required CSV columns (case-insensitive):
+		`date`, `description`, `amount`, `type`.
+	"""
 
-    try:
-        parsed_date = pd.to_datetime(payload.date)
-    except (ValueError, TypeError):
-        parsed_date = datetime(2026, 1, 1)
+	content_type = request.headers.get("content-type", "").lower()
 
-    type_value = 1 if str(payload.transaction_type).lower() == "income" else 0
-    day_of_week = int(parsed_date.dayofweek)
-    is_weekend = 1 if day_of_week in [5, 6] else 0
+	# JSON payload path (also used by the Telegram bot)
+	if content_type.startswith("application/json"):
+		raw_body = await request.json()
 
-    input_num = pd.DataFrame(
-        [{
-            "Amount": float(payload.amount),
-            "Type": type_value,
-            "Month": int(parsed_date.month),
-            "Day_of_Week": day_of_week,
-            "Is_Weekend": is_weekend,
-        }]
-    )
+		is_single = False
+		if isinstance(raw_body, dict):
+			is_single = True
+			items = [raw_body]
+		elif isinstance(raw_body, list):
+			items = raw_body
+		else:
+			raise HTTPException(status_code=400, detail="Invalid JSON payload.")
 
-    # Keep numerical input order aligned with training.
-    input_num = input_num[num_features]
-    input_num_scaled = scaler.transform(input_num)
-    input_text = vectorizer.transform([cleaned])
-    input_features = hstack([input_text, input_num_scaled])
+		try:
+			transactions = [Transaction.model_validate(item) for item in items]
+		except ValidationError as exc:  # pragma: no cover - FastAPI will format this
+			raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-    pred_idx = model.predict(input_features)[0]
-    pred_label = label_encoder.inverse_transform(np.array([pred_idx]))[0]
-    return PredictResponse(predicted_category=str(pred_label))
+		categories = classify_transactions(transactions)
+
+		if is_single:
+			return {
+				"date": str(transactions[0].date),
+				"description": transactions[0].description,
+				"amount": transactions[0].amount,
+				"type": transactions[0].transaction_type,
+				"category": categories[0],
+			}
+
+		rows = []
+		for idx, (tx, category) in enumerate(zip(transactions, categories)):
+			rows.append(
+				{
+					"index": idx,
+					"date": str(tx.date),
+					"description": tx.description,
+					"amount": tx.amount,
+					"type": tx.transaction_type,
+					"category": category,
+				}
+			)
+
+		return {
+			"total_rows": len(rows),
+			"rows": rows,
+		}
+
+	# CSV upload path
+	if "multipart/form-data" in content_type:
+		if not file:
+			raise HTTPException(status_code=400, detail="No CSV files uploaded.")
+
+		transactions: list[Transaction] = []
+
+		for upload in file:
+			if not upload.filename.lower().endswith(".csv"):
+				raise HTTPException(
+					status_code=400,
+					detail=f"Unsupported file type for '{upload.filename}'. Only .csv allowed.",
+				)
+
+			contents = await upload.read()
+			try:
+				df = pd.read_csv(io.BytesIO(contents))
+			except Exception as exc:  # noqa: BLE001
+				raise HTTPException(
+					status_code=400,
+					detail=f"Failed to parse CSV file '{upload.filename}': {exc}",
+				) from exc
+
+			if df.empty:
+				continue
+
+			column_map = {col.lower().strip(): col for col in df.columns}
+			# We require date/description/amount. `type` is optional and will
+			# default to "Expense" when missing. Extra columns like
+			# `raw_category` or `category` are ignored.
+			required_cols = ["date", "description", "amount"]
+			missing = [col for col in required_cols if col not in column_map]
+			if missing:
+				raise HTTPException(
+					status_code=400,
+					detail=(
+						f"CSV file '{upload.filename}' is missing required columns: "
+						f"{', '.join(missing)}."
+					),
+				)
+
+			for _, row in df.iterrows():
+				tx_payload = {
+					"date": row[column_map["date"]],
+					"description": row[column_map["description"]],
+					"amount": row[column_map["amount"]],
+				}
+
+				# Optional type column; default to Expense when not present.
+				type_col = column_map.get("type")
+				if type_col is not None:
+					tx_payload["type"] = row[type_col]
+				else:
+					tx_payload["type"] = "Expense"
+
+				try:
+					transactions.append(Transaction.model_validate(tx_payload))
+				except ValidationError as exc:  # noqa: BLE001
+					raise HTTPException(
+						status_code=422,
+						detail=(
+							"Validation error when parsing row from CSV file "
+							f"'{upload.filename}': {exc}"
+						),
+					) from exc
+
+		if not transactions:
+			raise HTTPException(status_code=400, detail="No valid rows found in uploaded CSV files.")
+
+		categories = classify_transactions(transactions)
+
+		rows = []
+		for idx, (tx, category) in enumerate(zip(transactions, categories)):
+			rows.append(
+				{
+					"index": idx,
+					"date": str(tx.date),
+					"description": tx.description,
+					"amount": tx.amount,
+					"type": tx.transaction_type,
+					"category": category,
+				}
+			)
+
+		return {
+			"total_rows": len(rows),
+			"rows": rows,
+		}
+
+	# Unsupported content type
+	raise HTTPException(
+		status_code=415,
+		detail="Unsupported content type. Use application/json or multipart/form-data with CSV.",
+	)
+
