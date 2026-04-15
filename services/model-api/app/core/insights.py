@@ -5,7 +5,6 @@ from typing import Dict, List
 
 import pandas as pd
 
-
 _DEFAULT_BUDGET_RULES: Dict[str, float] = {
     "Food": 25.0,
     "Transportation": 15.0,
@@ -27,10 +26,14 @@ class BudgetInsightEngine:
     - Savings should be at least ``savings_rule`` percent of income.
     """
 
-    budget_rules: Dict[str, float] = field(default_factory=lambda: _DEFAULT_BUDGET_RULES.copy())
+    budget_rules: Dict[str, float] = field(
+        default_factory=lambda: _DEFAULT_BUDGET_RULES.copy()
+    )
     savings_rule: float = 20.0
 
-    def run_inference_engine(self, categories: List[dict], total_income: float) -> pd.DataFrame:
+    def run_inference_engine(
+        self, categories: List[dict], total_income: float
+    ) -> pd.DataFrame:
         """Run the rule-based inference engine for a single month.
 
         Parameters
@@ -48,12 +51,16 @@ class BudgetInsightEngine:
             ``Category, Amount, Pct_Income, Limit_Pct, Status, Insight``.
         """
 
-        cat_df = pd.DataFrame(
-            {
-                "Category": [c["category"] for c in categories],
-                "Total_Spent": [float(c["amount"]) for c in categories],
-            }
-        ) if categories else pd.DataFrame(columns=["Category", "Total_Spent"])
+        cat_df = (
+            pd.DataFrame(
+                {
+                    "Category": [c["category"] for c in categories],
+                    "Total_Spent": [float(c["amount"]) for c in categories],
+                }
+            )
+            if categories
+            else pd.DataFrame(columns=["Category", "Total_Spent"])
+        )
 
         insights: list[dict] = []
         total_expense = float(cat_df["Total_Spent"].sum()) if not cat_df.empty else 0.0
@@ -68,7 +75,11 @@ class BudgetInsightEngine:
 
             if pct > limit:
                 status = "OVERSPENDING"
-                overspend_amount = spent - (total_income * limit / 100.0) if total_income > 0 else spent
+                overspend_amount = (
+                    spent - (total_income * limit / 100.0)
+                    if total_income > 0
+                    else spent
+                )
                 insight = (
                     f"You spent {pct:.1f}% of your income on {cat}, "
                     f"which exceeds the recommended limit of {limit}%. "
@@ -151,13 +162,37 @@ class BudgetInsightEngine:
             "trend": str(trend),
         }
 
-        oversp = insight_df[insight_df["Status"] == "OVERSPENDING"] if not insight_df.empty else insight_df
-        warnings = insight_df[insight_df["Status"] == "WARNING"] if not insight_df.empty else insight_df
-        healthy = insight_df[insight_df["Status"] == "OK"] if not insight_df.empty else insight_df
+        oversp = (
+            insight_df[insight_df["Status"] == "OVERSPENDING"]
+            if not insight_df.empty
+            else insight_df
+        )
+        warnings = (
+            insight_df[insight_df["Status"] == "WARNING"]
+            if not insight_df.empty
+            else insight_df
+        )
+        healthy = (
+            insight_df[insight_df["Status"] == "OK"]
+            if not insight_df.empty
+            else insight_df
+        )
 
-        overspending_messages = [str(r["Insight"]) for _, r in oversp.iterrows()] if not oversp.empty else []
-        warning_messages = [str(r["Insight"]) for _, r in warnings.iterrows()] if not warnings.empty else []
-        healthy_messages = [str(r["Insight"]) for _, r in healthy.iterrows()] if not healthy.empty else []
+        overspending_messages = (
+            [str(r["Insight"]) for _, r in oversp.iterrows()]
+            if not oversp.empty
+            else []
+        )
+        warning_messages = (
+            [str(r["Insight"]) for _, r in warnings.iterrows()]
+            if not warnings.empty
+            else []
+        )
+        healthy_messages = (
+            [str(r["Insight"]) for _, r in healthy.iterrows()]
+            if not healthy.empty
+            else []
+        )
 
         if savings_pct < self.savings_rule:
             recommendations = [

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from typing import List
 
 import pandas as pd
@@ -15,7 +14,9 @@ class SpendingForecaster:
     validation to choose the best window & algorithm based on MAE.
     """
 
-    def __init__(self, windows: List[int] | None = None, trend_threshold: float = 20.0) -> None:
+    def __init__(
+        self, windows: List[int] | None = None, trend_threshold: float = 20.0
+    ) -> None:
         self.windows: List[int] = windows or [2, 3, 4, 5]
         self.trend_threshold = float(trend_threshold)
 
@@ -33,7 +34,9 @@ class SpendingForecaster:
     @staticmethod
     def _mean_absolute_error(actuals: list[float], preds: list[float]) -> float:
         if not actuals or len(actuals) != len(preds):
-            raise ValueError("Actual and predicted lists must be the same non-zero length.")
+            raise ValueError(
+                "Actual and predicted lists must be the same non-zero length."
+            )
 
         total = 0.0
         for a, p in zip(actuals, preds):
