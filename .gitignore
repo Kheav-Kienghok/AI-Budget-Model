@@ -1,7 +1,9 @@
-*egg-info/*
+*.egg-info/*
 .venv/*
 clean_data/*
 data/*
 *.csv
 .vscode
 __pycache__/*
+*.pyc
+*.sqlite3

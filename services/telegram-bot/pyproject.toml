@@ -9,3 +9,17 @@ dependencies = [
     "httpx>=0.28.1",
     "python-dotenv>=1.0.1",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "black>=26.3.1",
+    "ruff>=0.15.10",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"

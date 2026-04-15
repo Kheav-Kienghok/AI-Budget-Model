@@ -13,7 +13,7 @@ WORKDIR /app
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY ./pyproject.toml ./uv.lock ./.python-version /app/
+COPY ./pyproject.toml ./uv.lock /app/
 
 # Install dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \

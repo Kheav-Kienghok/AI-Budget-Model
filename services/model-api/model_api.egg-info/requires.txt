@@ -1,4 +1,4 @@
-fastapi>=0.116.0
+fastapi[standard]>=0.116.0
 uvicorn>=0.35.0
 pandas>=2.2.0
 joblib>=1.4.0

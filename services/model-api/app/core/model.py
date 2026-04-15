@@ -4,7 +4,7 @@ import os
 import sys
 import types
 from pathlib import Path
-from typing import List
+from typing import List, Any
 from urllib.request import urlopen
 
 import joblib
@@ -14,10 +14,10 @@ from scipy.sparse import hstack
 from ..schemas.transaction import Transaction
 from ..utils.text import clean_text
 
-_MODEL_ARTIFACT: dict | None = None
+_MODEL_ARTIFACT: dict[str, Any] | None = None
 
 
-def load_model() -> dict:
+def load_model() -> dict[str, Any]:
     """Load and cache the trained model artifact."""
 
     global _MODEL_ARTIFACT
@@ -25,8 +25,29 @@ def load_model() -> dict:
         return _MODEL_ARTIFACT
 
     file_path = Path(__file__).resolve()
-    service_root = file_path.parents[2]
-    project_root = file_path.parents[4]
+    parents = list(file_path.parents)
+
+    # Derive service_root and project_root in a way that works both in the
+    # local monorepo layout and inside Docker, without assuming a fixed
+    # directory depth.
+    # Example layouts:
+    #   /home/.../services/model-api/app/core/model.py
+    #   /app/app/core/model.py  (inside container)
+    if len(parents) >= 3:
+        service_root = parents[2]
+    else:
+        service_root = parents[0]
+
+    # Prefer the nearest ancestor containing pyproject.toml as project_root.
+    project_root_candidate = next(
+        (p for p in parents if (p / "pyproject.toml").is_file()),
+        None,
+    )
+    if project_root_candidate is not None:
+        project_root = project_root_candidate
+    else:
+        # Fallback: parent of service_root, or service_root itself if at filesystem root.
+        project_root = service_root.parent if service_root.parent != service_root else service_root
     env_rel_path = os.getenv("MODEL_ARTIFACT_PATH", "models/expense_classifier.joblib")
 
     env_path = Path(env_rel_path)
@@ -41,7 +62,7 @@ def load_model() -> dict:
     # Ensure that module exists and exposes `clean_text`, even if uvicorn has
     # already registered its own __mp_main__ entry point.
     compat_module = sys.modules.get("__mp_main__") or types.ModuleType("__mp_main__")
-    compat_module.clean_text = clean_text
+    setattr(compat_module, "clean_text", clean_text)
     sys.modules["__mp_main__"] = compat_module
 
     candidates = [
@@ -52,8 +73,9 @@ def load_model() -> dict:
 
     for path in candidates:
         if path.is_file():
-            _MODEL_ARTIFACT = joblib.load(path)
-            return _MODEL_ARTIFACT
+            artifact = joblib.load(path)
+            _MODEL_ARTIFACT = artifact
+            return artifact
 
     # If no local artifact is found, fall back to downloading a default
     # model artifact from GitHub into the project_root/models directory.
@@ -80,8 +102,9 @@ def load_model() -> dict:
             "Train and export the model or ensure the file is accessible.",
         ) from exc
 
-    _MODEL_ARTIFACT = joblib.load(fallback_path)
-    return _MODEL_ARTIFACT
+    artifact = joblib.load(fallback_path)
+    _MODEL_ARTIFACT = artifact
+    return artifact
 
 
 def classify_transactions(transactions: List[Transaction]) -> list[str]:

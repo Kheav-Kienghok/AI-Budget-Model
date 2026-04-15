@@ -1,0 +1,5 @@
+2026-04-15 11:55:42,532 model_api.api INFO request.start
+2026-04-15 11:55:42,651 model_api.api INFO request.end
+2026-04-15 11:58:10,379 model_api.api INFO request.start
+2026-04-15 11:58:10,427 model_api.api INFO insights.success
+2026-04-15 11:58:10,431 model_api.api INFO request.end

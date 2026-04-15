@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from typing import List
+import logging
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 from .core.api_utils import (
     build_classification_response,
@@ -13,6 +15,15 @@ from .core.api_utils import (
 from .core.forecast import SpendingForecaster, build_monthly_expense_series
 from .core.insights import BudgetInsightEngine
 from .core.model import classify_transactions, load_model
+
+
+logger = logging.getLogger("model_api.api")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    handlers=[logging.FileHandler("model_api.log"), logging.StreamHandler()],
+)
 
 
 @asynccontextmanager
@@ -37,6 +48,26 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Middleware to log unexpected errors during request handling.
+
+    Does not log per-request start/end, only errors that bubble up
+    past route handlers.
+    """
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "request.error",
+            extra={"method": request.method, "path": str(request.url.path)},
+        )
+        raise
+
+    return response
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     """Health check endpoint that verifies the model loads."""
@@ -44,8 +75,39 @@ def health() -> dict[str, str]:
     try:
         load_model()
     except Exception:  # noqa: BLE001
+        logger.exception("health_check_failed")
         return {"status": "error"}
     return {"status": "ok"}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_logger(request: Request, exc: HTTPException) -> JSONResponse:
+    """Log HTTP exceptions with path and details before returning them."""
+
+    logger.warning(
+        "http_error",
+        extra={
+            "method": request.method,
+            "path": str(request.url.path),
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+        },
+    )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_logger(request: Request, exc: Exception) -> JSONResponse:  # noqa: BLE001
+    """Catch-all handler that logs unexpected errors with stack trace."""
+
+    logger.exception(
+        "unhandled_error",
+        extra={"method": request.method, "path": str(request.url.path)},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 @app.post("/classify")
@@ -65,6 +127,16 @@ async def classify(
     categories = classify_transactions(transactions)
     classification = build_classification_response(transactions, categories, is_single)
     monthly = build_monthly_summary(transactions, categories)
+
+    logger.info(
+        "classify.success",
+        extra={
+            "path": str(request.url.path),
+            "transactions": len(transactions),
+            "is_single": is_single,
+            "months": len(monthly.get("months", [])),
+        },
+    )
 
     return {
         "classification": classification,
@@ -96,6 +168,18 @@ async def forecast_spending(
         result = forecaster.forecast(series)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    logger.info(
+        "forecast.success",
+        extra={
+            "path": str(request.url.path),
+            "transactions": len(transactions),
+            "series_length": len(series),
+            "algorithm": result.get("algorithm"),
+            "trend": result.get("trend"),
+            "next_month": result.get("next_month"),
+        },
+    )
 
     return result
 
@@ -164,6 +248,19 @@ async def financial_insights(
         total_expense=total_expenses,
         predicted_next=predicted_next,
         trend=trend,
+    )
+
+    logger.info(
+        "insights.success",
+        extra={
+            "path": str(request.url.path),
+            "transactions": len(transactions),
+            "month": month_label,
+            "total_income": total_income,
+            "total_expenses": total_expenses,
+            "trend": trend,
+            "predicted_next": predicted_next,
+        },
     )
 
     return {
