@@ -54,4 +54,4 @@ USER appuser
 # Use virtualenv from uv
 ENV PATH="/app/.venv/bin:$PATH"
 
-CMD ["python", "bot/main.py"]
+CMD ["python", "-m", "bot.main"]

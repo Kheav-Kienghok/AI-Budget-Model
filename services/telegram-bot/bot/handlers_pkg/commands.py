@@ -3,7 +3,14 @@ from __future__ import annotations
 import logging
 from io import BytesIO
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReactionTypeEmoji,
+    Update,
+)
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from ..db_pkg import Database
@@ -34,16 +41,38 @@ async def _safe_edit(message: Message | None, text: str, **kwargs) -> None:
     await message.edit_text(text, **kwargs)
 
 
-async def _safe_success_reaction(message: Message | None) -> None:
+async def _safe_success_reaction(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
     """React with a success emoji when supported by the client/API."""
 
-    if message is None or not hasattr(message, "set_reaction"):
+    if update.effective_chat is None or update.message is None:
         return
 
     try:
-        await message.set_reaction("✅")
+        await context.bot.set_message_reaction(
+            chat_id=update.effective_chat.id,
+            message_id=update.message.message_id,
+            reaction=[ReactionTypeEmoji(emoji="✍️")],
+        )
+    except TelegramError as exc:
+        # Some chats reject specific emojis for reactions. Try a common fallback.
+        try:
+            await context.bot.set_message_reaction(
+                chat_id=update.effective_chat.id,
+                message_id=update.message.message_id,
+                reaction=[ReactionTypeEmoji(emoji="👍")],
+            )
+        except TelegramError:
+            logger.warning(
+                "Could not add reaction to message %s in chat %s: %s",
+                update.message.message_id,
+                update.effective_chat.id,
+                exc,
+            )
     except Exception:
-        logger.debug("Could not add reaction to message", exc_info=True)
+        logger.exception("Unexpected error while setting message reaction")
 
 
 def _main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -54,7 +83,11 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("📂 Upload a file", callback_data="send_csv"),
                 InlineKeyboardButton("📊 View insights", callback_data="see_insights"),
             ],
-            [InlineKeyboardButton("❓ Need help getting started?", callback_data="help")],
+            [
+                InlineKeyboardButton(
+                    "❓ Need help getting started?", callback_data="help"
+                )
+            ],
         ]
     )
 
@@ -62,12 +95,18 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
 def _csv_followup_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📊 Show insights", callback_data="csv_show_insights")],
+            [
+                InlineKeyboardButton(
+                    "📊 Show insights", callback_data="csv_show_insights"
+                )
+            ],
             [
                 InlineKeyboardButton(
                     "📂 Import another CSV", callback_data="csv_import_more"
                 ),
-                InlineKeyboardButton("🏠 Back to start", callback_data="csv_back_start"),
+                InlineKeyboardButton(
+                    "🏠 Back to start", callback_data="csv_back_start"
+                ),
             ],
         ]
     )
@@ -96,7 +135,7 @@ def _help_text() -> str:
         "❓ *Two simple ways to add your money*",
         "",
         "*1) Start now*",
-        "- Tap *\"🚀 Start now\"*.",
+        '- Tap *"🚀 Start now"*.',
         "- Send one record per message in this format:",
         "  `description, amount, type`",
         "",
@@ -111,7 +150,7 @@ def _help_text() -> str:
         "",
         "*2) Upload a file*",
         "- Export your transactions from your bank/spreadsheet.",
-        "- Tap *\"📂 Upload a file\"* and send it here.",
+        '- Tap *"📂 Upload a file"* and send it here.',
         "- Supported right now: *CSV only*.",
     ]
     return "\n".join(lines)
@@ -300,7 +339,9 @@ def _extract_dashboard_image_url(response: dict[str, object]) -> str | None:
     return None
 
 
-async def _send_dashboard_image(message: Message | None, response: dict[str, object]) -> None:
+async def _send_dashboard_image(
+    message: Message | None, response: dict[str, object]
+) -> None:
     """Send dashboard image attachment when present in response."""
 
     if message is None:
@@ -576,12 +617,19 @@ async def handle_manual_text(
         )
         return
 
-    await _safe_success_reaction(update.message)
+    await _safe_success_reaction(update, context)
 
-    await _safe_reply(
-        update.message,
-        "Saved ✅",
-    )
+    # Keep the chat clean: show this guidance once, then use reactions only.
+    if not context.user_data.get("save_success_notice_sent"):
+        context.user_data["save_success_notice_sent"] = True
+        await _safe_reply(
+            update.message,
+            "🎉 Nice one! Your transaction is safely recorded.\n\n"
+            "Want to see your insights? Type /summary, or tap the *View insights* button.\n"
+            "Need to add more? Tap *Start now* or *Upload a file*.\n\n"
+            "From here on, I’ll keep things clean with a quick reaction for each save.",
+            parse_mode="Markdown",
+        )
 
 
 async def handle_button_callback(
@@ -603,7 +651,9 @@ async def handle_button_callback(
         context.user_data = {}
 
     if context.user_data.get("action_in_progress"):
-        await query.answer("⏳ The app is processing your previous action. Please wait.")
+        await query.answer(
+            "⏳ The app is processing your previous action. Please wait."
+        )
         return
 
     # Lock immediately before any await to prevent double-trigger on rapid taps.
