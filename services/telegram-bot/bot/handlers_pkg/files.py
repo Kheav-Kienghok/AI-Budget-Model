@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from ..db_pkg import Database
 from ..external import send_file_payload
 from ..utils_pkg import get_user_identifiers
-from .commands import _format_insights_markdown
+from .commands import _csv_followup_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -124,23 +124,31 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Report back to the user.
         msg_parts: list[str] = []
         if stored_rows:
-            msg_parts.append(f"✅ Stored {stored_rows} rows in your expense history.")
+            msg_parts.append(
+                f"✅ Your CSV file has been stored successfully. {stored_rows} records have been saved."
+            )
         else:
             msg_parts.append(
                 "ℹ️ No rows were stored from the CSV (missing 'amount' or 'description' columns?)."
             )
 
         if isinstance(response, dict):
-            insights_text = _format_insights_markdown(response)
-        else:
-            insights_text = (
-                "I got a response from the server, but it wasn't in the expected format."
+            if context.user_data is not None:
+                context.user_data["pending_csv_insights"] = response
+
+            msg_parts.append("")
+            msg_parts.append(
+                "Would you like to view insights now, or continue importing more CSV files?"
             )
-
-        msg_parts.append("")
-        msg_parts.append(insights_text)
-
-        await update.message.reply_text("\n".join(msg_parts), parse_mode="Markdown")
+            await update.message.reply_text(
+                "\n".join(msg_parts),
+                reply_markup=_csv_followup_keyboard(),
+            )
+        else:
+            await update.message.reply_text(
+                "\n".join(msg_parts)
+                + "\n\nI got a response from the server, but it wasn't in the expected format.",
+            )
 
     except Exception:  # noqa: BLE001
         logger.exception("Failed to process and forward file to backend API")

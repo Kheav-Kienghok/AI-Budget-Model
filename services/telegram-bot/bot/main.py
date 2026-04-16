@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -22,10 +23,23 @@ from .db_pkg import Database, DatabaseConfig
 from .handlers_pkg import (
     start,
     help_command,
+    import_command,
+    summary_command,
     handle_button_callback,
     handle_document,
     handle_manual_text,
 )
+
+
+async def _set_bot_commands(application: Application) -> None:
+    await application.bot.set_my_commands(
+        [
+            BotCommand("start", "Start Expense Buddy AI and set up your account"),
+            BotCommand("help", "Learn how to use Expense Buddy AI"),
+            BotCommand("import", "Upload a CSV file to import your expenses"),
+            BotCommand("summary", "View total spending + quick insights"),
+        ]
+    )
 
 
 def build_application() -> Application:
@@ -48,7 +62,12 @@ def build_application() -> Application:
     configure_logging()
     logger = logging.getLogger(__name__)
 
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .post_init(_set_bot_commands)
+        .build()
+    )
 
     db = Database(DatabaseConfig(dsn=DEFAULT_DB_PATH))
     db.connect()
@@ -56,6 +75,8 @@ def build_application() -> Application:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("import", import_command))
+    app.add_handler(CommandHandler("summary", summary_command))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(CallbackQueryHandler(handle_button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_manual_text))

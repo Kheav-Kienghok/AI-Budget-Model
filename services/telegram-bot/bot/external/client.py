@@ -10,6 +10,21 @@ from ..config import EXTERNAL_API_URL
 logger = logging.getLogger(__name__)
 
 
+def build_external_url(path_or_url: str) -> str:
+    """Build a full URL from EXTERNAL_API_URL and a relative path."""
+
+    raw = (path_or_url or "").strip()
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+
+    base = EXTERNAL_API_URL.rstrip("/")
+    if not raw:
+        return base
+
+    suffix = raw if raw.startswith("/") else f"/{raw}"
+    return f"{base}{suffix}"
+
+
 async def send_json_payload(data: Any, endpoint: str = "") -> dict[str, Any]:
     """Send a JSON payload to the external API.
 
@@ -33,6 +48,17 @@ async def send_json_payload(data: Any, endpoint: str = "") -> dict[str, Any]:
     )
 
     return response.json()
+
+
+async def fetch_binary_from_external(path_or_url: str) -> bytes:
+    """Fetch binary content from EXTERNAL_API_URL or an absolute URL."""
+
+    url = build_external_url(path_or_url)
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(url)
+    response.raise_for_status()
+    logger.info("Downloaded binary payload from external API at %s", url)
+    return response.content
 
 
 async def send_file_payload(
