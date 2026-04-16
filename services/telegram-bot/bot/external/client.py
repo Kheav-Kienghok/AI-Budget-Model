@@ -73,23 +73,19 @@ async def send_file_payload(
     `EXTERNAL_API_URL` is expected to be the base URL, e.g. "http://localhost:8000".
     """
 
-    # Force a sensible MIME type for CSV uploads so the backend
-    # does not see `application/json` by mistake.
-    if filename.lower().endswith(".csv"):
-        content_type = "text/csv"
-
     base_url = EXTERNAL_API_URL.rstrip("/")
     endpoint_path = endpoint if endpoint.startswith("/") else f"/{endpoint}"
     url = f"{base_url}{endpoint_path}"
 
-    files = {"file": (filename, file_bytes, content_type)}
+    # Send multipart/form-data with key "file" and the actual CSV bytes.
+    # Let the HTTP client infer the file part headers.
+    files = {"file": (filename, file_bytes)}
 
     try:
         logger.info(
-            "Sending file '%s' to external API at %s with content type '%s'",
+            "Sending file '%s' to external API at %s via multipart form-data key 'file'",
             filename,
             url,
-            content_type,
         )
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(url, files=files)

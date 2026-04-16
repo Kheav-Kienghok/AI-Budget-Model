@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
+import json
 
 from datetime import datetime, timezone
 import asyncio
@@ -31,6 +32,39 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
     handlers=[logging.FileHandler("model_api.log"), logging.StreamHandler()],
 )
+
+
+def _format_http_exception_detail(detail: object) -> str:
+    """Normalize HTTP exception details into a compact log-safe string."""
+
+    if isinstance(detail, list):
+        formatted_errors: list[str] = []
+        for idx, item in enumerate(detail, start=1):
+            if isinstance(item, dict):
+                loc = item.get("loc")
+                msg = item.get("msg")
+                err_type = item.get("type")
+
+                if isinstance(loc, (list, tuple)):
+                    loc_text = ".".join(str(part) for part in loc)
+                else:
+                    loc_text = str(loc) if loc is not None else "unknown"
+
+                formatted_errors.append(
+                    f"{idx}) loc={loc_text} msg={msg!r} type={err_type!r}"
+                )
+            else:
+                formatted_errors.append(f"{idx}) {item!r}")
+
+        return " | ".join(formatted_errors)
+
+    if isinstance(detail, dict):
+        try:
+            return json.dumps(detail, default=str, separators=(",", ":"))
+        except Exception:  # noqa: BLE001
+            return repr(detail)
+
+    return repr(detail)
 
 
 def _build_dashboard_payload(
@@ -264,15 +298,22 @@ def health() -> dict[str, str]:
 async def http_exception_logger(request: Request, exc: HTTPException) -> JSONResponse:
     """Log HTTP exceptions with path and details before returning them."""
 
-    logger.warning(
-        "http_error",
-        extra={
-            "method": request.method,
-            "path": str(request.url.path),
-            "status_code": exc.status_code,
-            "detail": exc.detail,
-        },
-    )
+    detail_text = _format_http_exception_detail(exc.detail)
+    if exc.status_code == 422:
+        logger.warning(
+            "http_error status_code=422 method=%s path=%s validation_errors=%s",
+            request.method,
+            str(request.url.path),
+            detail_text,
+        )
+    else:
+        logger.warning(
+            "http_error status_code=%s method=%s path=%s detail=%s",
+            exc.status_code,
+            request.method,
+            str(request.url.path),
+            detail_text,
+        )
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 

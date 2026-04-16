@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from io import BytesIO
+from typing import SupportsFloat
 
 from telegram import (
     InlineKeyboardButton,
@@ -184,13 +185,17 @@ def _format_insights_markdown(response: dict[str, object]) -> str:
     sections = report.get("sections") if isinstance(report, dict) else None
     budget = report.get("budget_recommendations") if isinstance(report, dict) else None
 
-    def fmt_money(value: object | None) -> str:
+    def fmt_money(value: SupportsFloat | str | None) -> str:
+        if value is None:
+            return "-"
         try:
             return f"${float(value):,.2f}"
-        except (TypeError, ValueError):  # noqa: TRY003
+        except (TypeError, ValueError):
             return "-"
 
-    def fmt_pct(value: object | None) -> str:
+    def fmt_pct(value: SupportsFloat | str | None) -> str:
+        if value is None:
+            return "-"
         try:
             return f"{float(value):.1f}%"
         except (TypeError, ValueError):  # noqa: TRY003
@@ -227,8 +232,8 @@ def _format_insights_markdown(response: dict[str, object]) -> str:
             net_balance_pct = fmt_pct(summary_pct)
         else:
             try:
-                income = float(total_income)
-                net = float(net_balance)
+                income = float(total_income) if total_income is not None else 0.0
+                net = float(net_balance) if net_balance is not None else 0.0
                 net_balance_pct = f"{(net / income) * 100:.1f}%" if income > 0 else "-"
             except (TypeError, ValueError, ZeroDivisionError):  # noqa: TRY003
                 net_balance_pct = "-"
@@ -471,8 +476,29 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await help_command(update, context)
         return
 
+    # Get both transactions (from CSV) and expenses (manual entries)
+    transactions = db.get_transactions_for_user(user_id)
+    expenses = db.get_expenses_for_user(user_id)
+
     items: list[dict[str, object]] = []
-    for r in rows:
+
+    # Add transactions (from CSV, with actual dates)
+    for t in transactions:
+        amount = float(t["amount"]) if t["amount"] else 0.0
+        entry_type = (t["type"] or "Expense").strip()
+        date_str = str(t["date"]) if t["date"] else ""
+
+        items.append(
+            {
+                "date": date_str,
+                "description": t["description"],
+                "amount": abs(amount),
+                "type": entry_type,
+            }
+        )
+
+    # Add expenses (manual entries, with created_at date)
+    for r in expenses:
         raw_amount = float(r["amount"])
         category = (r["category"] or "").lower()
 
@@ -620,8 +646,11 @@ async def handle_manual_text(
     await _safe_success_reaction(update, context)
 
     # Keep the chat clean: show this guidance once, then use reactions only.
-    if not context.user_data.get("save_success_notice_sent"):
-        context.user_data["save_success_notice_sent"] = True
+    if context.user_data is not None and not context.user_data.get(
+        "save_success_notice_sent"
+    ):
+        if context.user_data is not None:
+            context.user_data["save_success_notice_sent"] = True
         await _safe_reply(
             update.message,
             "🎉 Nice one! Your transaction is safely recorded.\n\n"
@@ -704,8 +733,11 @@ async def handle_button_callback(
                 )
                 return
 
-            rows = db.get_expenses_for_user(user_id)
-            if not rows:
+            # Get both transactions (from CSV) and expenses (manual entries)
+            transactions = db.get_transactions_for_user(user_id)
+            expenses = db.get_expenses_for_user(user_id)
+
+            if not transactions and not expenses:
                 await _safe_edit(
                     status_message,
                     "I don't have any data for you yet.\n"
@@ -713,10 +745,26 @@ async def handle_button_callback(
                 )
                 return
 
-            # Build JSON array in the format expected by the insights API:
-            # [{ "date": "YYYY-MM-DD", "description": "...", "amount": 123.45, "type": "Income"|"Expense" }, ...]
+            # Build JSON array combining transactions (CSV with dates) and expenses (manual entries)
             items: list[dict[str, object]] = []
-            for r in rows:
+
+            # Add transactions (from CSV, with actual dates)
+            for t in transactions:
+                amount = float(t["amount"]) if t["amount"] else 0.0
+                entry_type = (t["type"] or "Expense").strip()
+                date_str = str(t["date"]) if t["date"] else ""
+
+                items.append(
+                    {
+                        "date": date_str,
+                        "description": t["description"],
+                        "amount": abs(amount),
+                        "type": entry_type,
+                    }
+                )
+
+            # Add expenses (manual entries, with created_at date)
+            for r in expenses:
                 raw_amount = float(r["amount"])  # may be negative for expenses
                 category = (r["category"] or "").lower()
 

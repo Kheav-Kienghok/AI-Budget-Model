@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from io import BytesIO, StringIO
 import csv
+
+import httpx
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -39,7 +42,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         db: Database | None = context.application.bot_data.get("db")  # type: ignore[assignment]
         user_id, _, _, _ = get_user_identifiers(update)
 
-        stored_rows = 0
+        transaction_rows: list[tuple[int, str | None, str, float, str]] = []
         if db is not None and user_id is not None:
             # Decode and parse row-by-row into structured data.
             try:
@@ -60,7 +63,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     description = (
                         row.get("description") or row.get("Description") or ""
                     ).strip()
-                    category = row.get("category") or row.get("Category") or None
 
                     if not amount_str or not description:
                         continue
@@ -71,8 +73,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     type_cell = (row.get("type") or row.get("Type") or "").strip()
                     if type_cell:
                         t = type_cell.lower()
-                    elif category:
-                        t = str(category).lower()
                     else:
                         t = ""
 
@@ -84,42 +84,51 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         # Default to Expense when not specified.
                         entry_type = "Expense"
 
-                    # Store into the original expenses table for backwards compatibility.
-                    db.add_expense(
-                        user_id=user_id,
-                        amount=amount,
-                        description=description,
-                        category=category,
+                    # CSV data goes only to transactions table (which preserves dates)
+                    transaction_rows.append(
+                        (
+                            user_id,
+                            date_str,
+                            description,
+                            amount,
+                            entry_type,
+                        )
                     )
-
-                    # Also store into the new transactions table with the
-                    # structure you requested: date, description, amount, type.
-                    try:
-                        db.add_transaction(
-                            user_id=user_id,
-                            date=date_str,
-                            description=description,
-                            amount=amount,
-                            entry_type=entry_type,
-                        )
-                    except Exception:  # noqa: BLE001
-                        logger.exception(
-                            "Failed to store CSV row into transactions table",
-                            exc_info=True,
-                        )
-                    stored_rows += 1
                 except Exception:  # noqa: BLE001
                     # Skip bad rows but continue processing the rest.
                     logger.exception("Failed to store one CSV row", exc_info=True)
+
+            stored_rows = db.add_csv_rows(transaction_rows)
+        else:
+            stored_rows = 0
 
         mime_type = document.mime_type or "application/octet-stream"
 
         # Always send CSV files to the /insights endpoint.
         api_endpoint = "/insights"
 
-        response = await send_file_payload(
-            file_bytes, filename, mime_type, api_endpoint
+        logger.info(
+            "Sending file '%s' (size: %d bytes) to %s endpoint",
+            filename,
+            len(file_bytes),
+            api_endpoint,
         )
+        try:
+            response = await send_file_payload(
+                file_bytes, filename, mime_type, api_endpoint
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 422:
+                raise
+
+            await update.message.reply_text(
+                "I am still processing your CSV on the backend. Please be patient while I try again in 30 seconds."
+            )
+            await asyncio.sleep(30)
+
+            response = await send_file_payload(
+                file_bytes, filename, mime_type, api_endpoint
+            )
 
         # Report back to the user.
         msg_parts: list[str] = []

@@ -6,4 +6,5 @@ from .commands import (
     handle_button_callback as handle_button_callback,
     handle_manual_text as handle_manual_text,
 )
+from .destroy_pkg import destroy_command as destroy_command
 from .files import handle_document as handle_document

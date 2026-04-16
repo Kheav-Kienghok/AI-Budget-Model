@@ -325,3 +325,13 @@ TypeError: tz must be string or tzinfo subclass, not <matplotlib.category.UnitDa
 2026-04-15 15:28:41,840 model_api.api INFO insights.success
 2026-04-15 15:34:24,158 model_api.api INFO insights.success
 2026-04-16 11:50:22,496 model_api.api INFO insights.success
+2026-04-16 19:15:36,536 model_api.api INFO insights.success
+2026-04-16 19:48:14,873 model_api.api WARNING http_error
+2026-04-16 19:48:47,865 model_api.api WARNING http_error
+2026-04-16 19:51:23,970 model_api.api WARNING http_error
+2026-04-16 19:55:14,486 model_api.api WARNING http_error status_code=422 method=POST path=/insights validation_errors="Validation error when parsing row from CSV file 'random_expenses_fixed_format.csv': 1 validation error for Transaction\ndate\n  Input should be a valid date or datetime, input is too short [type=date_from_datetime_parsing, input_value='1/1/2026', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/date_from_datetime_parsing"
+2026-04-16 19:55:42,819 model_api.api WARNING http_error status_code=422 method=POST path=/insights validation_errors="Validation error when parsing row from CSV file 'random_expenses_fixed_format.csv': 1 validation error for Transaction\ndate\n  Input should be a valid date or datetime, input is too short [type=date_from_datetime_parsing, input_value='1/1/2026', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/date_from_datetime_parsing"
+2026-04-16 19:57:53,821 model_api.api INFO insights.success
+2026-04-16 19:59:06,042 model_api.api INFO insights.success
+2026-04-16 19:59:46,117 model_api.api INFO insights.success
+2026-04-16 20:03:26,210 model_api.api INFO insights.success

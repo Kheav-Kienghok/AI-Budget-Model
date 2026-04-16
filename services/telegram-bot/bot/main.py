@@ -25,6 +25,7 @@ from .handlers_pkg import (
     help_command,
     import_command,
     summary_command,
+    destroy_command,
     handle_button_callback,
     handle_document,
     handle_manual_text,
@@ -38,6 +39,7 @@ async def _set_bot_commands(application: Application) -> None:
             BotCommand("help", "Learn how to use Expense Buddy AI"),
             BotCommand("import", "Upload a CSV file to import your expenses"),
             BotCommand("summary", "View total spending + quick insights"),
+            BotCommand("destroy", "Delete your expenses and transactions data"),
         ]
     )
 
@@ -77,6 +79,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("import", import_command))
     app.add_handler(CommandHandler("summary", summary_command))
+    app.add_handler(CommandHandler("destroy", destroy_command))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(CallbackQueryHandler(handle_button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_manual_text))

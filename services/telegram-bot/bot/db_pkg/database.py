@@ -32,7 +32,11 @@ class Database:
         self._ensure_schema(self._connection)
 
     def _get_connection(self) -> psycopg.Connection:
-        if self._connection is None or self._connection.closed or self._connection.broken:
+        if (
+            self._connection is None
+            or self._connection.closed
+            or self._connection.broken
+        ):
             self.close()
             self.connect()
 
@@ -147,6 +151,32 @@ class Database:
         )
         connection.commit()
 
+    def add_csv_rows(
+        self,
+        transaction_rows: list[tuple[int, str | None, str, float, str]],
+    ) -> int:
+        """Store CSV rows (only to transactions table) in one transaction.
+
+        CSV data is written to transactions only since it has explicit dates.
+        Manual entries go to expenses.
+        """
+
+        if not transaction_rows:
+            return 0
+
+        connection = self._get_connection()
+        with connection.transaction():
+            cur = connection.cursor()
+            cur.executemany(
+                """
+                INSERT INTO transactions (user_id, date, description, amount, type)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                transaction_rows,
+            )
+
+        return len(transaction_rows)
+
     def get_expenses_for_user(self, user_id: int) -> list[dict]:
         """Return all expenses for a given user, newest first."""
 
@@ -164,6 +194,55 @@ class Database:
         rows = cur.fetchall()
 
         return [dict(row) for row in rows]
+
+    def get_transactions_for_user(self, user_id: int) -> list[dict]:
+        """Return all transactions for a given user, newest first."""
+
+        connection = self._get_connection()
+        cur = connection.cursor()
+        cur.execute(
+            """
+            SELECT user_id, date, description, amount, type
+            FROM transactions
+            WHERE user_id = %s
+            ORDER BY date DESC
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+
+        return [dict(row) for row in rows]
+
+    def clear_user_financial_data(self, user_id: int) -> tuple[int, int]:
+        """Delete a user's rows from expenses and transactions tables.
+
+        Returns:
+            A tuple of deleted row counts: (expenses_count, transactions_count)
+        """
+
+        connection = self._get_connection()
+        cur = connection.cursor()
+
+        cur.execute(
+            """
+            DELETE FROM expenses
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        deleted_expenses = cur.rowcount or 0
+
+        cur.execute(
+            """
+            DELETE FROM transactions
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        deleted_transactions = cur.rowcount or 0
+
+        connection.commit()
+        return deleted_expenses, deleted_transactions
 
     def close(self) -> None:
         if self._connection is not None:
