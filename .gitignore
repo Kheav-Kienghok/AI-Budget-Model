@@ -7,3 +7,4 @@ data/*
 __pycache__/*
 *.pyc
 *.sqlite3
+telegram_bot.egg-info/*

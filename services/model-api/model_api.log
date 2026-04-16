@@ -3,3 +3,324 @@
 2026-04-15 11:58:10,379 model_api.api INFO request.start
 2026-04-15 11:58:10,427 model_api.api INFO insights.success
 2026-04-15 11:58:10,431 model_api.api INFO request.end
+2026-04-15 15:17:46,595 matplotlib.category INFO Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-04-15 15:17:46,622 matplotlib.category INFO Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-04-15 15:17:46,735 model_api.api ERROR request.error
+Traceback (most recent call last):
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 143, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 336, in financial_insights
+    dashboard = _build_dashboard_payload(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 101, in _build_dashboard_payload
+    return renderer.render_dashboard(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/core/dashboard.py", line 217, in render_dashboard
+    ax4.plot(
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_axes.py", line 1777, in plot
+    lines = [*self._get_lines(self, *args, data=data, **kwargs)]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 297, in __call__
+    yield from self._plot_args(
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 489, in _plot_args
+    axes.xaxis.update_units(x)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1759, in update_units
+    self._update_axisinfo()
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1771, in _update_axisinfo
+    info = self._converter.axisinfo(self.units, self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1828, in axisinfo
+    return self._get_converter().axisinfo(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1745, in axisinfo
+    majloc = AutoDateLocator(tz=tz,
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1279, in __init__
+    super().__init__(tz=tz)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1078, in __init__
+    self.tz = _get_tzinfo(tz)
+              ^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 224, in _get_tzinfo
+    raise TypeError(f"tz must be string or tzinfo subclass, not {tz!r}.")
+TypeError: tz must be string or tzinfo subclass, not <matplotlib.category.UnitData object at 0x70d7c4844d10>.
+2026-04-15 15:17:46,753 model_api.api ERROR unhandled_error
+Traceback (most recent call last):
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 143, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 336, in financial_insights
+    dashboard = _build_dashboard_payload(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 101, in _build_dashboard_payload
+    return renderer.render_dashboard(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/core/dashboard.py", line 217, in render_dashboard
+    ax4.plot(
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_axes.py", line 1777, in plot
+    lines = [*self._get_lines(self, *args, data=data, **kwargs)]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 297, in __call__
+    yield from self._plot_args(
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 489, in _plot_args
+    axes.xaxis.update_units(x)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1759, in update_units
+    self._update_axisinfo()
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1771, in _update_axisinfo
+    info = self._converter.axisinfo(self.units, self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1828, in axisinfo
+    return self._get_converter().axisinfo(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1745, in axisinfo
+    majloc = AutoDateLocator(tz=tz,
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1279, in __init__
+    super().__init__(tz=tz)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1078, in __init__
+    self.tz = _get_tzinfo(tz)
+              ^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 224, in _get_tzinfo
+    raise TypeError(f"tz must be string or tzinfo subclass, not {tz!r}.")
+TypeError: tz must be string or tzinfo subclass, not <matplotlib.category.UnitData object at 0x70d7c4844d10>.
+2026-04-15 15:18:16,893 matplotlib.category INFO Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-04-15 15:18:16,913 matplotlib.category INFO Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-04-15 15:18:17,019 model_api.api ERROR request.error
+Traceback (most recent call last):
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 143, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 424, in financial_dashboard
+    dashboard = _build_dashboard_payload(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 101, in _build_dashboard_payload
+    return renderer.render_dashboard(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/core/dashboard.py", line 217, in render_dashboard
+    ax4.plot(
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_axes.py", line 1777, in plot
+    lines = [*self._get_lines(self, *args, data=data, **kwargs)]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 297, in __call__
+    yield from self._plot_args(
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 489, in _plot_args
+    axes.xaxis.update_units(x)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1759, in update_units
+    self._update_axisinfo()
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1771, in _update_axisinfo
+    info = self._converter.axisinfo(self.units, self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1828, in axisinfo
+    return self._get_converter().axisinfo(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1745, in axisinfo
+    majloc = AutoDateLocator(tz=tz,
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1279, in __init__
+    super().__init__(tz=tz)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1078, in __init__
+    self.tz = _get_tzinfo(tz)
+              ^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 224, in _get_tzinfo
+    raise TypeError(f"tz must be string or tzinfo subclass, not {tz!r}.")
+TypeError: tz must be string or tzinfo subclass, not <matplotlib.category.UnitData object at 0x70d7c428b140>.
+2026-04-15 15:18:17,023 model_api.api ERROR unhandled_error
+Traceback (most recent call last):
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 143, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 424, in financial_dashboard
+    dashboard = _build_dashboard_payload(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/main.py", line 101, in _build_dashboard_payload
+    return renderer.render_dashboard(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/app/core/dashboard.py", line 217, in render_dashboard
+    ax4.plot(
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_axes.py", line 1777, in plot
+    lines = [*self._get_lines(self, *args, data=data, **kwargs)]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 297, in __call__
+    yield from self._plot_args(
+               ^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axes/_base.py", line 489, in _plot_args
+    axes.xaxis.update_units(x)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1759, in update_units
+    self._update_axisinfo()
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/axis.py", line 1771, in _update_axisinfo
+    info = self._converter.axisinfo(self.units, self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1828, in axisinfo
+    return self._get_converter().axisinfo(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1745, in axisinfo
+    majloc = AutoDateLocator(tz=tz,
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1279, in __init__
+    super().__init__(tz=tz)
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 1078, in __init__
+    self.tz = _get_tzinfo(tz)
+              ^^^^^^^^^^^^^^^
+  File "/home/keanghok/Development/SideProject/AI-Budget-Model/services/model-api/.venv/lib/python3.12/site-packages/matplotlib/dates.py", line 224, in _get_tzinfo
+    raise TypeError(f"tz must be string or tzinfo subclass, not {tz!r}.")
+TypeError: tz must be string or tzinfo subclass, not <matplotlib.category.UnitData object at 0x70d7c428b140>.
+2026-04-15 15:21:20,878 model_api.api INFO insights.success
+2026-04-15 15:28:41,840 model_api.api INFO insights.success
+2026-04-15 15:34:24,158 model_api.api INFO insights.success

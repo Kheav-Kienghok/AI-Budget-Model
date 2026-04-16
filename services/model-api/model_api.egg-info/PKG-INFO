@@ -12,31 +12,7 @@ Requires-Dist: scipy>=1.16.0
 Requires-Dist: pydantic>=2.11.0
 Requires-Dist: python-multipart>=0.0.9
 Requires-Dist: scikit-learn>=1.8.0
+Requires-Dist: seaborn>=0.13.0
 Provides-Extra: dev
 Requires-Dist: black>=26.3.1; extra == "dev"
 Requires-Dist: ruff>=0.15.10; extra == "dev"
-
-# Model API Service
-
-This service exposes an HTTP endpoint for predicting expense categories from transaction input.
-
-## Endpoints
-- GET /health
-- POST /predict
-
-## Run
-Start server from repository root:
-
-```bash
-uvicorn app.main:app --app-dir services/model-api --reload
-```
-
-## Request Example
-```json
-{
-  "description": "Bought groceries",
-  "amount": 29.5,
-  "transaction_type": "Expense",
-  "date": "2026-04-06"
-}
-```

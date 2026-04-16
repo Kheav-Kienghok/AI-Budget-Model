@@ -1,0 +1,29 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.env
+.env.*
+.git
+.gitignore
+.vscode/
+.idea/
+.mypy_cache/
+.pytype/
+.cache/
+
+# Local data and artifacts
+expense_buddy.sqlite3
+*.db
+*.sqlite3
+
+# Build output
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Docker
+Dockerfile
+.dockerignore

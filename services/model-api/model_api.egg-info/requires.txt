@@ -6,6 +6,7 @@ scipy>=1.16.0
 pydantic>=2.11.0
 python-multipart>=0.0.9
 scikit-learn>=1.8.0
+seaborn>=0.13.0
 
 [dev]
 black>=26.3.1

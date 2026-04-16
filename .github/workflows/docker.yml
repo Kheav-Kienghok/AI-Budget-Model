@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build and Push Docker Images
 
 on:
   workflow_dispatch:
@@ -6,6 +6,19 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service:
+          - name: model-api
+            context: ./services/model-api
+            dockerfile: ./services/model-api/Dockerfile
+            image: expense-tracker-model-api
+
+          - name: telegram-bot
+            context: ./services/telegram-bot
+            dockerfile: ./services/telegram-bot/Dockerfile
+            image: expense-tracker-bot
 
     steps:
       - name: Checkout code
@@ -29,9 +42,9 @@ jobs:
       - name: Build and Push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./services/model-api
-          file: ./services/model-api/Dockerfile
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/expense-tracker-model-api:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/expense-tracker-model-api:v${{ steps.vars.outputs.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.image }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.image }}:${{ steps.vars.outputs.sha }}

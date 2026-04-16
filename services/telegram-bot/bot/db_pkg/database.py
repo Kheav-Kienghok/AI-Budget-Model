@@ -1,30 +1,31 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
+from typing import Optional, cast, Any
 
+import psycopg
+from psycopg.rows import dict_row
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class DatabaseConfig:
-    path: Path
+    dsn: str
 
 
 class Database:
     def __init__(self, config: DatabaseConfig) -> None:
         self._config = config
-        self._connection: Optional[sqlite3.Connection] = None
+        self._connection: Optional[psycopg.Connection] = None
 
     def connect(self) -> None:
         if self._connection is None:
-            self._connection = sqlite3.connect(self._config.path)
-            self._connection.row_factory = sqlite3.Row
-            logger.info("Connected to SQLite DB at %s", self._config.path)
+            self._connection = psycopg.connect(
+                self._config.dsn, row_factory=cast(Any, dict_row)
+            )
+            logger.info("Connected to PostgreSQL DB")
             self._ensure_schema()
 
     def _ensure_schema(self) -> None:
@@ -33,19 +34,19 @@ class Database:
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL UNIQUE,
                 username TEXT,
                 first_name TEXT,
                 last_name TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """
+            """,
         )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL,
                 amount REAL NOT NULL,
                 description TEXT NOT NULL,
@@ -53,12 +54,30 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
+            """,
+        )
+        cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS transactions (
+                user_id INTEGER NOT NULL,
+                date DATE,
+                description TEXT,
+                amount NUMERIC,
+                type TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+            """,
         )
         self._connection.commit()
         logger.info("Ensured database schema exists")
 
-    def ensure_user(self, user_id: int, username: str | None, first_name: str | None, last_name: str | None) -> None:
+    def ensure_user(
+        self,
+        user_id: int,
+        username: str | None,
+        first_name: str | None,
+        last_name: str | None,
+    ) -> None:
         if self._connection is None:
             self.connect()
         assert self._connection is not None
@@ -66,18 +85,89 @@ class Database:
         cur.execute(
             """
             INSERT INTO users (user_id, username, first_name, last_name)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                username=excluded.username,
-                first_name=excluded.first_name,
-                last_name=excluded.last_name
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                username = EXCLUDED.username,
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name
             """,
             (user_id, username, first_name, last_name),
         )
         self._connection.commit()
 
+    def add_expense(
+        self, user_id: int, amount: float, description: str, category: str | None = None
+    ) -> None:
+        """Store a single expense or income entry for a user.
+
+        Use a positive amount for income and a negative amount for expenses
+        (or vice versa, depending on how you prepare the CSV).
+        """
+
+        if self._connection is None:
+            self.connect()
+        assert self._connection is not None
+
+        cur = self._connection.cursor()
+        cur.execute(
+            """
+            INSERT INTO expenses (user_id, amount, description, category)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (user_id, amount, description, category),
+        )
+        self._connection.commit()
+
+    def add_transaction(
+        self,
+        user_id: int,
+        date: str | None,
+        description: str,
+        amount: float,
+        entry_type: str,
+    ) -> None:
+        """Store a single transaction row as shown in the spec.
+
+        Columns: date, description, amount, type.
+        """
+
+        if self._connection is None:
+            self.connect()
+        assert self._connection is not None
+
+        cur = self._connection.cursor()
+        cur.execute(
+            """
+            INSERT INTO transactions (user_id, date, description, amount, type)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (user_id, date, description, amount, entry_type),
+        )
+        self._connection.commit()
+
+    def get_expenses_for_user(self, user_id: int) -> list[dict]:
+        """Return all expenses for a given user, newest first."""
+
+        if self._connection is None:
+            self.connect()
+        assert self._connection is not None
+
+        cur = self._connection.cursor()
+        cur.execute(
+            """
+            SELECT user_id, amount, description, category, created_at
+            FROM expenses
+            WHERE user_id = %s
+            ORDER BY created_at DESC, id DESC
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+
+        return [dict(row) for row in rows]
+
     def close(self) -> None:
         if self._connection is not None:
             self._connection.close()
-            logger.info("Closed SQLite connection")
+            logger.info("Closed PostgreSQL connection")
             self._connection = None

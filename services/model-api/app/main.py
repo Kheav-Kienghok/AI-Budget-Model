@@ -1,21 +1,27 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from typing import List
 import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import List
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from datetime import datetime, timezone
+import asyncio
+
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, Response
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+import pandas as pd
 
 from .core.api_utils import (
     build_classification_response,
     build_monthly_summary,
     parse_transactions,
 )
+from .core.dashboard import BudgetDashboardRenderer
 from .core.forecast import SpendingForecaster, build_monthly_expense_series
 from .core.insights import BudgetInsightEngine
 from .core.model import classify_transactions, load_model
-
 
 logger = logging.getLogger("model_api.api")
 
@@ -26,15 +32,171 @@ logging.basicConfig(
 )
 
 
+def _build_dashboard_payload(
+    monthly_summary: dict,
+    latest_month: dict,
+    cat_list: list[dict],
+    insight_df,
+    forecast_result: dict | None,
+    predicted_next: float,
+    engine: BudgetInsightEngine,
+) -> dict:
+    """Build dashboard table + chart using the shared renderer.
+
+    This helper converts the monthly summary + insight DataFrame into the
+    DataFrame shapes expected by ``BudgetDashboardRenderer`` and returns the
+    resulting payload (JSON table + image path/URL).
+    """
+
+    months_data: list[dict] = monthly_summary.get("months", [])
+    if not months_data:
+        return {
+            "table": {"header": [], "rows": []},
+            "image_url": None,
+        }
+
+    month_labels = [m["month"] for m in months_data]
+    month_dt = pd.to_datetime(month_labels)
+
+    monthly_df = pd.DataFrame(
+        {
+            "month_dt": month_dt,
+            "total_income": [float(m["income"]) for m in months_data],
+            "total_expenses": [float(m["expenses"]) for m in months_data],
+        }
+    )
+    monthly_df["net_balance"] = (
+        monthly_df["total_income"] - monthly_df["total_expenses"]
+    )
+
+    # Build monthly category matrix (rows = months, cols = categories)
+    cat_rows: list[dict] = []
+    for m in months_data:
+        cat_map = {c["category"]: float(c["amount"]) for c in m.get("categories", [])}
+        cat_rows.append(cat_map)
+
+    if cat_rows:
+        monthly_cat_df = pd.DataFrame(cat_rows, index=month_dt).fillna(0.0)
+    else:
+        monthly_cat_df = pd.DataFrame(index=month_dt)
+
+    if cat_list:
+        cat_series = pd.Series({c["category"]: float(c["amount"]) for c in cat_list})
+    else:
+        cat_series = pd.Series(dtype="float64")
+
+    # Determine x-position for forecast marker
+    if forecast_result is not None:
+        next_month_str = str(forecast_result.get("next_month", latest_month["month"]))
+        try:
+            next_month_dt = pd.to_datetime(next_month_str)
+        except Exception:  # noqa: BLE001
+            next_month_dt = pd.to_datetime(latest_month["month"]) + pd.DateOffset(
+                months=1
+            )
+    else:
+        next_month_dt = pd.to_datetime(latest_month["month"]) + pd.DateOffset(months=1)
+
+    latest_month_dt = pd.to_datetime(latest_month["month"])
+    latest_month_str = latest_month_dt.strftime("%B %Y")
+
+    renderer = BudgetDashboardRenderer(savings_rule=engine.savings_rule)
+
+    # Save the dashboard image into the ./static folder so it can be served
+    # publicly via the FastAPI StaticFiles mount.
+    output_path = Path("static") / renderer.output_filename
+
+    rendered = renderer.render_dashboard(
+        insight_df=insight_df,
+        monthly=monthly_df,
+        monthly_cat=monthly_cat_df,
+        cat_series=cat_series,
+        next_month=next_month_dt,
+        next_pred=predicted_next,
+        latest_month_str=latest_month_str,
+        output_path=output_path,
+    )
+
+    # Build a JSON-friendly table representation from the insight DataFrame.
+    header = ["category", "amount", "pct_income", "limit_pct", "status"]
+    rows: list[dict] = []
+    if not insight_df.empty:
+        for _, r in insight_df.iterrows():
+            rows.append(
+                {
+                    "category": str(r["Category"]),
+                    "amount": float(r["Amount"]),
+                    "pct_income": float(r["Pct_Income"]),
+                    "limit_pct": float(r["Limit_Pct"]),
+                    "status": str(r["Status"]),
+                }
+            )
+
+    image_path = Path(rendered.get("image_path", "")).as_posix()
+    if image_path.startswith("static/"):
+        image_url = f"/{image_path}"
+    elif image_path:
+        image_url = f"/static/{Path(image_path).name}"
+    else:
+        image_url = None
+
+    return {
+        "table": {
+            "header": header,
+            "rows": rows,
+        },
+        "image_url": image_url,
+    }
+
+
+STATIC_DIR = Path("static")
+STATIC_TTL_SECONDS = 600  # 10 minutes
+
+
+async def _static_cleanup_loop() -> None:
+    """Periodically delete files in STATIC_DIR older than STATIC_TTL_SECONDS."""
+
+    while True:
+        try:
+            now_ts = datetime.now(timezone.utc).timestamp()
+            if STATIC_DIR.is_dir():
+                for path in STATIC_DIR.iterdir():
+                    if not path.is_file():
+                        continue
+                    try:
+                        mtime = path.stat().st_mtime
+                    except OSError:
+                        continue
+                    if now_ts - mtime > STATIC_TTL_SECONDS:
+                        try:
+                            path.unlink(missing_ok=True)
+                        except OSError:
+                            logger.exception(
+                                "static_cleanup.unlink_error",
+                                extra={"path": str(path)},
+                            )
+        except Exception:  # noqa: BLE001
+            logger.exception("static_cleanup.error")
+
+        await asyncio.sleep(STATIC_TTL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     load_model()
 
-    yield
+    # Start background task to clean old static files
+    cleanup_task = asyncio.create_task(_static_cleanup_loop())
 
-    # Shutdown (optional)
-    # cleanup here if needed
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -45,7 +207,20 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,  # Disables Swagger UI
+    redoc_url=None,  # Disables ReDoc
+    openapi_url=None,  # Disables the underlying openapi.json
 )
+
+# Serve dashboard images and other assets from ./static under /static
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    """Return an empty favicon to avoid 404 noise."""
+
+    return Response(status_code=204)
 
 
 @app.middleware("http")
@@ -97,7 +272,9 @@ async def http_exception_logger(request: Request, exc: HTTPException) -> JSONRes
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_logger(request: Request, exc: Exception) -> JSONResponse:  # noqa: BLE001
+async def unhandled_exception_logger(
+    request: Request, exc: Exception
+) -> JSONResponse:  # noqa: BLE001
     """Catch-all handler that logs unexpected errors with stack trace."""
 
     logger.exception(
@@ -250,6 +427,16 @@ async def financial_insights(
         trend=trend,
     )
 
+    dashboard = _build_dashboard_payload(
+        monthly_summary=monthly_summary,
+        latest_month=latest_month,
+        cat_list=cat_list,
+        insight_df=insight_df,
+        forecast_result=forecast_result,
+        predicted_next=predicted_next,
+        engine=engine,
+    )
+
     logger.info(
         "insights.success",
         extra={
@@ -271,4 +458,5 @@ async def financial_insights(
         "forecast": forecast_result,
         "insights": insight_df.to_dict(orient="records"),
         "report": report,
+        "dashboard": dashboard,
     }

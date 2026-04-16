@@ -12,6 +12,7 @@ import pandas as pd
 from scipy.sparse import hstack
 
 from ..schemas.transaction import Transaction
+from ..schemas.category_map import CATEGORY_MAP
 from ..utils.text import clean_text
 
 _MODEL_ARTIFACT: dict[str, Any] | None = None
@@ -47,7 +48,9 @@ def load_model() -> dict[str, Any]:
         project_root = project_root_candidate
     else:
         # Fallback: parent of service_root, or service_root itself if at filesystem root.
-        project_root = service_root.parent if service_root.parent != service_root else service_root
+        project_root = (
+            service_root.parent if service_root.parent != service_root else service_root
+        )
     env_rel_path = os.getenv("MODEL_ARTIFACT_PATH", "models/expense_classifier.joblib")
 
     env_path = Path(env_rel_path)
@@ -162,5 +165,8 @@ def classify_transactions(transactions: List[Transaction]) -> list[str]:
     X = hstack([X_text, X_num])
 
     encoded_labels = model.predict(X)
-    categories = label_encoder.inverse_transform(encoded_labels)
+    raw_categories = label_encoder.inverse_transform(encoded_labels)
+
+    # Remap model output categories into the normalized CATEGORY_MAP space.
+    categories = [CATEGORY_MAP.get(str(cat), str(cat)) for cat in raw_categories]
     return list(categories)
