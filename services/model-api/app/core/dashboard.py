@@ -175,10 +175,12 @@ class BudgetDashboardRenderer:
 
         # Panel 2: Category pie - latest month
         cat_vals = cat_series[cat_series > 0]
-        colors_pie = plt.cm.Set3(np.linspace(0, 1, len(cat_vals)))
+        cmap = plt.colormaps["Set3"]
+        colors_pie = cmap(np.linspace(0, 1, len(cat_vals))).tolist()
+
         ax2.pie(
-            cat_vals.values,
-            labels=cat_vals.index,
+            cat_vals.to_numpy(dtype=float),
+            labels=cat_vals.index.to_list(),
             autopct="%1.1f%%",
             colors=colors_pie,
             startangle=90,
@@ -187,9 +189,15 @@ class BudgetDashboardRenderer:
         ax2.set_title(f"Spending by Category\n({latest_month_str})", fontsize=11)
 
         # Panel 3: Category stacked bar over time
-        bottom = np.zeros(len(monthly_cat))
-        colors_bar = plt.cm.tab10(np.linspace(0, 1, len(monthly_cat.columns)))
+        bottom = np.zeros(len(monthly_cat), dtype=float)
+
+        cmap = plt.colormaps["tab10"]
+        colors_bar = cmap(np.linspace(0, 1, len(monthly_cat.columns)))
+
         for j, cat in enumerate(monthly_cat.columns):
+
+            vals = monthly_cat[cat].to_numpy(dtype=float)
+
             ax3.bar(
                 monthly_cat.index,
                 monthly_cat[cat],
@@ -198,7 +206,8 @@ class BudgetDashboardRenderer:
                 color=colors_bar[j],
                 alpha=0.85,
             )
-            bottom += monthly_cat[cat].values
+            bottom += vals
+
         ax3.set_title("Category Spending Over Time", fontsize=11)
         ax3.set_ylabel("Amount ($)")
         ax3.legend(fontsize=7, ncol=2)

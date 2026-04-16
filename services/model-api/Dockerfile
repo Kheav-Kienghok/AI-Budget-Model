@@ -22,9 +22,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy application code
 COPY ./app /app/app
 
-# Final sync (installs project itself)
+# Final sync (reconcile locked deps; project install not required at runtime)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-install-project --no-dev
 
 # Expose FastAPI port
 EXPOSE 8000

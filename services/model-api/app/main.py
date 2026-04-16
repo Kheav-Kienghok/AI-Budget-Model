@@ -7,6 +7,7 @@ from typing import List
 
 from datetime import datetime, timezone
 import asyncio
+from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, Response
 from fastapi.responses import JSONResponse
@@ -102,9 +103,10 @@ def _build_dashboard_payload(
 
     renderer = BudgetDashboardRenderer(savings_rule=engine.savings_rule)
 
-    # Save the dashboard image into the ./static folder so it can be served
-    # publicly via the FastAPI StaticFiles mount.
-    output_path = Path("static") / renderer.output_filename
+    # Save each dashboard image with a unique timestamp+UUID filename.
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    unique_filename = f"dashboard_{timestamp}_{uuid4().hex}.png"
+    output_path = STATIC_DIR / unique_filename
 
     rendered = renderer.render_dashboard(
         insight_df=insight_df,
@@ -151,6 +153,7 @@ def _build_dashboard_payload(
 
 STATIC_DIR = Path("static")
 STATIC_TTL_SECONDS = 600  # 10 minutes
+CLEANUP_INTERVAL_SECONDS = 900  # 15 minutes
 
 
 async def _static_cleanup_loop() -> None:
@@ -178,12 +181,13 @@ async def _static_cleanup_loop() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("static_cleanup.error")
 
-        await asyncio.sleep(STATIC_TTL_SECONDS)
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
     load_model()
 
     # Start background task to clean old static files
@@ -213,7 +217,8 @@ app = FastAPI(
 )
 
 # Serve dashboard images and other assets from ./static under /static
-app.mount("/static", StaticFiles(directory="static"), name="static")
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
