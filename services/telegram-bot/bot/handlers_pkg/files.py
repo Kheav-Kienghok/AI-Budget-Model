@@ -11,9 +11,9 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ..db_pkg import Database
-from ..external import send_file_payload
+from ..external import send_json_payload
 from ..utils_pkg import get_user_identifiers
-from .commands import _csv_followup_keyboard
+from .commands import _build_insights_payload, _csv_followup_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -102,21 +102,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         else:
             stored_rows = 0
 
-        mime_type = document.mime_type or "application/octet-stream"
-
-        # Always send CSV files to the /insights endpoint.
+        # Build insights request data from DB tables instead of sending the raw CSV file.
         api_endpoint = "/insights"
+        payload: list[dict[str, object]] = []
+        if db is not None and user_id is not None:
+            transactions = db.get_transactions_for_user(user_id)
+            expenses = db.get_expenses_for_user(user_id)
+            payload = _build_insights_payload(transactions, expenses)
 
         logger.info(
-            "Sending file '%s' (size: %d bytes) to %s endpoint",
-            filename,
-            len(file_bytes),
+            "Sending DB-derived insights payload with %d items to %s endpoint",
+            len(payload),
             api_endpoint,
         )
         try:
-            response = await send_file_payload(
-                file_bytes, filename, mime_type, api_endpoint
-            )
+            response = await send_json_payload(payload, endpoint=api_endpoint)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 422:
                 raise
@@ -126,9 +126,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             await asyncio.sleep(30)
 
-            response = await send_file_payload(
-                file_bytes, filename, mime_type, api_endpoint
-            )
+            response = await send_json_payload(payload, endpoint=api_endpoint)
 
         # Report back to the user.
         msg_parts: list[str] = []

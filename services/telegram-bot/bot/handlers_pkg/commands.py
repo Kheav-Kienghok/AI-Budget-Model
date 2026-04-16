@@ -169,6 +169,60 @@ def _csv_import_instructions_text() -> str:
     )
 
 
+def _build_insights_payload(
+    transactions: list[dict], expenses: list[dict]
+) -> list[dict[str, object]]:
+    """Build a single insights payload from transactions and expenses tables.
+
+    Rules:
+    - From transactions: use date, description, amount, type (lowercase).
+    - From expenses: map category -> type (lowercase), and use created_at date.
+    """
+
+    items: list[dict[str, object]] = []
+
+    for t in transactions:
+        raw_type = str(t.get("type") or "expense").strip().lower()
+        entry_type = raw_type if raw_type else "expense"
+
+        amount_val = t.get("amount")
+        amount = float(amount_val) if amount_val not in (None, "") else 0.0
+
+        items.append(
+            {
+                "date": str(t.get("date") or ""),
+                "description": t.get("description") or "",
+                "amount": abs(amount),
+                "type": entry_type,
+            }
+        )
+
+    for r in expenses:
+        category = str(r.get("category") or "").strip().lower()
+
+        amount_val = r.get("amount")
+        raw_amount = float(amount_val) if amount_val not in (None, "") else 0.0
+
+        if category:
+            entry_type = category
+        else:
+            entry_type = "income" if raw_amount > 0 else "expense"
+
+        created = str(r.get("created_at") or "")
+        date_only = created.split(" ")[0] if created else ""
+
+        items.append(
+            {
+                "date": date_only,
+                "description": r.get("description") or "",
+                "amount": abs(raw_amount),
+                "type": entry_type,
+            }
+        )
+
+    return items
+
+
 def _format_insights_markdown(response: dict[str, object]) -> str:
     """Turn the /insights JSON into a polished Markdown insights report."""
 
@@ -465,8 +519,11 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    rows = db.get_expenses_for_user(user_id)
-    if not rows:
+    # Get both transactions (from CSV) and expenses (manual entries).
+    transactions = db.get_transactions_for_user(user_id)
+    expenses = db.get_expenses_for_user(user_id)
+
+    if not transactions and not expenses:
         await _safe_reply(
             update.message,
             "You don't have any data yet.\n"
@@ -476,50 +533,7 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await help_command(update, context)
         return
 
-    # Get both transactions (from CSV) and expenses (manual entries)
-    transactions = db.get_transactions_for_user(user_id)
-    expenses = db.get_expenses_for_user(user_id)
-
-    items: list[dict[str, object]] = []
-
-    # Add transactions (from CSV, with actual dates)
-    for t in transactions:
-        amount = float(t["amount"]) if t["amount"] else 0.0
-        entry_type = (t["type"] or "Expense").strip()
-        date_str = str(t["date"]) if t["date"] else ""
-
-        items.append(
-            {
-                "date": date_str,
-                "description": t["description"],
-                "amount": abs(amount),
-                "type": entry_type,
-            }
-        )
-
-    # Add expenses (manual entries, with created_at date)
-    for r in expenses:
-        raw_amount = float(r["amount"])
-        category = (r["category"] or "").lower()
-
-        if category == "income":
-            entry_type = "Income"
-            amount = abs(raw_amount)
-        else:
-            entry_type = "Expense"
-            amount = abs(raw_amount)
-
-        created = str(r["created_at"]) if r["created_at"] is not None else ""
-        date_only = created.split(" ")[0] if created else ""
-
-        items.append(
-            {
-                "date": date_only,
-                "description": r["description"],
-                "amount": amount,
-                "type": entry_type,
-            }
-        )
+    items = _build_insights_payload(transactions, expenses)
 
     try:
         response = await send_json_payload(items, endpoint="/insights")
@@ -745,49 +759,7 @@ async def handle_button_callback(
                 )
                 return
 
-            # Build JSON array combining transactions (CSV with dates) and expenses (manual entries)
-            items: list[dict[str, object]] = []
-
-            # Add transactions (from CSV, with actual dates)
-            for t in transactions:
-                amount = float(t["amount"]) if t["amount"] else 0.0
-                entry_type = (t["type"] or "Expense").strip()
-                date_str = str(t["date"]) if t["date"] else ""
-
-                items.append(
-                    {
-                        "date": date_str,
-                        "description": t["description"],
-                        "amount": abs(amount),
-                        "type": entry_type,
-                    }
-                )
-
-            # Add expenses (manual entries, with created_at date)
-            for r in expenses:
-                raw_amount = float(r["amount"])  # may be negative for expenses
-                category = (r["category"] or "").lower()
-
-                if category == "income":
-                    entry_type = "Income"
-                    amount = abs(raw_amount)
-                else:
-                    entry_type = "Expense"
-                    amount = abs(raw_amount)
-
-                created = str(r["created_at"]) if r["created_at"] is not None else ""
-                date_only = created.split(" ")[0] if created else ""
-
-                items.append(
-                    {
-                        "date": date_only,
-                        "description": r["description"],
-                        "amount": amount,
-                        "type": entry_type,
-                    }
-                )
-
-            payload = items
+            payload = _build_insights_payload(transactions, expenses)
 
             try:
                 response = await send_json_payload(payload, endpoint="/insights")
