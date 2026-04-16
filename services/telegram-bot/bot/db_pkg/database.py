@@ -21,16 +21,26 @@ class Database:
         self._connection: Optional[psycopg.Connection] = None
 
     def connect(self) -> None:
-        if self._connection is None:
-            self._connection = psycopg.connect(
-                self._config.dsn, row_factory=cast(Any, dict_row)
-            )
-            logger.info("Connected to PostgreSQL DB")
-            self._ensure_schema()
+        if self._connection is not None and not self._connection.closed:
+            if not self._connection.broken:
+                return
 
-    def _ensure_schema(self) -> None:
+        self._connection = psycopg.connect(
+            self._config.dsn, row_factory=cast(Any, dict_row)
+        )
+        logger.info("Connected to PostgreSQL DB")
+        self._ensure_schema(self._connection)
+
+    def _get_connection(self) -> psycopg.Connection:
+        if self._connection is None or self._connection.closed or self._connection.broken:
+            self.close()
+            self.connect()
+
         assert self._connection is not None
-        cur = self._connection.cursor()
+        return self._connection
+
+    def _ensure_schema(self, connection: psycopg.Connection) -> None:
+        cur = connection.cursor()
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -68,7 +78,7 @@ class Database:
             )
             """,
         )
-        self._connection.commit()
+        connection.commit()
         logger.info("Ensured database schema exists")
 
     def ensure_user(
@@ -78,10 +88,8 @@ class Database:
         first_name: str | None,
         last_name: str | None,
     ) -> None:
-        if self._connection is None:
-            self.connect()
-        assert self._connection is not None
-        cur = self._connection.cursor()
+        connection = self._get_connection()
+        cur = connection.cursor()
         cur.execute(
             """
             INSERT INTO users (user_id, username, first_name, last_name)
@@ -93,7 +101,7 @@ class Database:
             """,
             (user_id, username, first_name, last_name),
         )
-        self._connection.commit()
+        connection.commit()
 
     def add_expense(
         self, user_id: int, amount: float, description: str, category: str | None = None
@@ -104,11 +112,8 @@ class Database:
         (or vice versa, depending on how you prepare the CSV).
         """
 
-        if self._connection is None:
-            self.connect()
-        assert self._connection is not None
-
-        cur = self._connection.cursor()
+        connection = self._get_connection()
+        cur = connection.cursor()
         cur.execute(
             """
             INSERT INTO expenses (user_id, amount, description, category)
@@ -116,7 +121,7 @@ class Database:
             """,
             (user_id, amount, description, category),
         )
-        self._connection.commit()
+        connection.commit()
 
     def add_transaction(
         self,
@@ -131,11 +136,8 @@ class Database:
         Columns: date, description, amount, type.
         """
 
-        if self._connection is None:
-            self.connect()
-        assert self._connection is not None
-
-        cur = self._connection.cursor()
+        connection = self._get_connection()
+        cur = connection.cursor()
         cur.execute(
             """
             INSERT INTO transactions (user_id, date, description, amount, type)
@@ -143,16 +145,13 @@ class Database:
             """,
             (user_id, date, description, amount, entry_type),
         )
-        self._connection.commit()
+        connection.commit()
 
     def get_expenses_for_user(self, user_id: int) -> list[dict]:
         """Return all expenses for a given user, newest first."""
 
-        if self._connection is None:
-            self.connect()
-        assert self._connection is not None
-
-        cur = self._connection.cursor()
+        connection = self._get_connection()
+        cur = connection.cursor()
         cur.execute(
             """
             SELECT user_id, amount, description, category, created_at
