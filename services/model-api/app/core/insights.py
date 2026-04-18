@@ -31,6 +31,14 @@ class BudgetInsightEngine:
     )
     savings_rule: float = 20.0
 
+    def __post_init__(self) -> None:
+        merged_rules = _DEFAULT_BUDGET_RULES.copy()
+        merged_rules.update(
+            {str(category): float(limit) for category, limit in self.budget_rules.items()}
+        )
+        self.budget_rules = merged_rules
+        self.savings_rule = float(self.savings_rule)
+
     def run_inference_engine(
         self, categories: List[dict], total_income: float
     ) -> pd.DataFrame:

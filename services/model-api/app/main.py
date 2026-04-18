@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List
+from typing import Any, List
 import json
 
 from datetime import datetime, timezone
@@ -65,6 +66,73 @@ def _format_http_exception_detail(detail: object) -> str:
             return repr(detail)
 
     return repr(detail)
+
+
+def _parse_budget_rule_overrides(
+    value: Any | None, field_name: str
+) -> dict[str, float]:
+    """Parse custom budget rules from a mapping or JSON string."""
+
+    if value is None or value == "":
+        return {}
+
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field_name} must be a JSON object or a JSON string.",
+            ) from exc
+
+    if not isinstance(value, dict):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be a JSON object.",
+        )
+
+    parsed: dict[str, float] = {}
+    for category, limit in value.items():
+        try:
+            limit_value = float(limit)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field_name} values must be numeric.",
+            ) from exc
+
+        if not math.isfinite(limit_value) or limit_value < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field_name} values must be finite and non-negative.",
+            )
+
+        parsed[str(category)] = limit_value
+
+    return parsed
+
+
+def _parse_optional_float(value: Any | None, field_name: str) -> float | None:
+    """Parse an optional numeric override from either a string or a number."""
+
+    if value is None or value == "":
+        return None
+
+    try:
+        parsed_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be numeric.",
+        ) from exc
+
+    if not math.isfinite(parsed_value) or parsed_value < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be finite and non-negative.",
+        )
+
+    return parsed_value
 
 
 def _build_dashboard_payload(
@@ -418,9 +486,49 @@ async def financial_insights(
     - monthly income/expense + category totals
     - simple forecast of next month's expenses
     - rule-based budget and savings evaluation with a narrative report
+    
+    Custom budget rules can be supplied either in a JSON wrapper payload
+    under ``transactions``, ``budget_rules``, and ``savings_rule`` or via
+    query parameters for CSV uploads.
     """
 
     transactions, _ = await parse_transactions(request, file)
+
+    default_engine = BudgetInsightEngine()
+    budget_rules = default_engine.budget_rules.copy()
+    savings_rule = default_engine.savings_rule
+
+    raw_body: object | None = None
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith("application/json"):
+        raw_body = await request.json()
+
+    query_budget_rules = _parse_budget_rule_overrides(
+        request.query_params.get("budget_rules"),
+        "budget_rules",
+    )
+    query_savings_rule = _parse_optional_float(
+        request.query_params.get("savings_rule"),
+        "savings_rule",
+    )
+
+    budget_rules.update(query_budget_rules)
+    if query_savings_rule is not None:
+        savings_rule = query_savings_rule
+
+    if isinstance(raw_body, dict) and "transactions" in raw_body:
+        body_budget_rules = _parse_budget_rule_overrides(
+            raw_body.get("budget_rules"),
+            "budget_rules",
+        )
+        body_savings_rule = _parse_optional_float(
+            raw_body.get("savings_rule"),
+            "savings_rule",
+        )
+
+        budget_rules.update(body_budget_rules)
+        if body_savings_rule is not None:
+            savings_rule = body_savings_rule
 
     # Reuse the classifier to determine per-transaction categories
     categories = classify_transactions(transactions)
@@ -463,7 +571,10 @@ async def financial_insights(
         predicted_next = total_expenses
         trend = "Stable"
 
-    engine = BudgetInsightEngine()
+    engine = BudgetInsightEngine(
+        budget_rules=budget_rules,
+        savings_rule=savings_rule,
+    )
     insight_df = engine.run_inference_engine(cat_list, total_income)
     report = engine.generate_nlp_report(
         insight_df,
@@ -501,6 +612,8 @@ async def financial_insights(
         "total_income": total_income,
         "total_expenses": total_expenses,
         "net_balance": net_balance,
+        "budget_rules": engine.budget_rules,
+        "savings_rule": engine.savings_rule,
         "forecast": forecast_result,
         "insights": insight_df.to_dict(orient="records"),
         "report": report,

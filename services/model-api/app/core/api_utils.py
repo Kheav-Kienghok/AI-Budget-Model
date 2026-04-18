@@ -17,7 +17,8 @@ async def parse_transactions(
     """Parse incoming request (JSON or CSV) into Transaction objects.
 
     Returns a tuple of (transactions, is_single_json), where is_single_json
-    is True when the input was a single JSON object.
+    is True when the input was a single JSON object. JSON requests may also be
+    wrapped in an object with a top-level ``transactions`` field.
     """
 
     content_type = request.headers.get("content-type", "").lower()
@@ -28,8 +29,21 @@ async def parse_transactions(
 
         is_single = False
         if isinstance(raw_body, dict):
-            is_single = True
-            items = [raw_body]
+            if "transactions" in raw_body:
+                items = raw_body["transactions"]
+                if isinstance(items, dict):
+                    items = [items]
+                    is_single = True
+                elif isinstance(items, list):
+                    is_single = False
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid JSON payload. 'transactions' must be an object or a list.",
+                    )
+            else:
+                is_single = True
+                items = [raw_body]
         elif isinstance(raw_body, list):
             items = raw_body
         else:
