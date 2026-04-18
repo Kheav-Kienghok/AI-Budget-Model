@@ -833,10 +833,15 @@ async def handle_button_callback(
                 ),
             )
         elif data == "csv_import_more":
+            if context.user_data is not None:
+                context.user_data.pop("pending_csv_insights", None)
+
             await _safe_edit(
                 status_message,
-                "Great, send your next CSV file now.\n"
-                "Supported format at the moment: .csv",
+                "*Nice, you are all set for another import*\n"
+                "Send your next CSV file when you are ready.\n\n"
+                "*Supported format:* CSV (.csv)",
+                parse_mode="Markdown",
             )
         elif data == "csv_back_start":
             if context.user_data is not None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional, cast, Any
 
 import psycopg
@@ -153,7 +154,7 @@ class Database:
 
     def add_csv_rows(
         self,
-        transaction_rows: list[tuple[int, str | None, str, float, str]],
+        transaction_rows: list[tuple[int, date | None, str, float, str]],
     ) -> int:
         """Store CSV rows (only to transactions table) in one transaction.
 

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from io import BytesIO, StringIO
 import csv
+from datetime import date, datetime
 
 import httpx
 
@@ -16,6 +17,90 @@ from ..utils_pkg import get_user_identifiers
 from .commands import _build_insights_payload, _csv_followup_keyboard
 
 logger = logging.getLogger(__name__)
+
+
+def _normalized_cell(row: dict[str, str], *candidate_keys: str) -> str:
+    """Read a CSV cell by key with light header normalization.
+
+    This supports common variants like BOM-prefixed headers and extra spaces.
+    """
+
+    normalized: dict[str, str] = {
+        str(k).replace("\ufeff", "").strip().lower(): (v or "")
+        for k, v in row.items()
+        if k is not None
+    }
+    for key in candidate_keys:
+        value = normalized.get(key.strip().lower())
+        if value is not None:
+            return value.strip()
+    return ""
+
+
+def _parse_csv_date(date_str: str) -> date | None:
+    """Parse CSV date only in strict DD/MM/YYYY format."""
+
+    raw = date_str.strip()
+    if not raw:
+        return None
+
+    try:
+        return datetime.strptime(raw, "%d/%m/%Y").date()
+    except ValueError:
+        return None
+
+
+def _parse_csv_amount(amount_str: str) -> float | None:
+    """Parse amount values from common bank export formats.
+
+    Supports:
+    - 1234.56
+    - 1,234.56
+    - 1.234,56
+    - (123.45) for negatives
+    """
+
+    raw = amount_str.strip()
+    if not raw:
+        return None
+
+    negative = raw.startswith("(") and raw.endswith(")")
+    cleaned = raw.strip("()")
+    cleaned = cleaned.replace("$", "").replace(" ", "")
+
+    # If both separators exist, infer decimal separator by last occurrence.
+    if "," in cleaned and "." in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            # 1.234,56 -> 1234.56
+            cleaned = cleaned.replace(".", "")
+            cleaned = cleaned.replace(",", ".")
+        else:
+            # 1,234.56 -> 1234.56
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        # Treat a lone comma as decimal separator when it looks like cents.
+        left, right = cleaned.rsplit(",", 1)
+        if right.isdigit() and len(right) in (1, 2):
+            cleaned = f"{left}.{right}".replace(",", "")
+        else:
+            cleaned = cleaned.replace(",", "")
+
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return None
+
+    return -value if negative else value
+
+
+def _detect_csv_dialect(raw_text: str) -> type[csv.Dialect]:
+    """Detect CSV dialect to support comma and semicolon exports."""
+
+    sample = raw_text[:2048]
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",;")
+    except csv.Error:
+        return csv.excel
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -32,6 +117,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     try:
+        if context.user_data is not None:
+            context.user_data.pop("pending_csv_insights", None)
+
         # Download the file bytes from Telegram.
         file = await context.bot.get_file(document.file_id)
         buffer = BytesIO()
@@ -40,10 +128,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Parse CSV and store rows into the database per user.
         db: Database | None = context.application.bot_data.get("db")  # type: ignore[assignment]
-        user_id, _, _, _ = get_user_identifiers(update)
+        user_id, username, first_name, last_name = get_user_identifiers(update)
 
-        transaction_rows: list[tuple[int, str | None, str, float, str]] = []
+        transaction_rows: list[tuple[int, date | None, str, float, str]] = []
         if db is not None and user_id is not None:
+            # Ensure foreign key parent exists before writing transactions.
+            db.ensure_user(user_id, username, first_name, last_name)
+
             # Decode and parse row-by-row into structured data.
             try:
                 raw_text = file_bytes.decode("utf-8")
@@ -52,25 +143,72 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
             # Parse it row-by-row into structured data.
             text_stream = StringIO(raw_text)
-            reader = csv.DictReader(text_stream)
+            dialect = _detect_csv_dialect(raw_text)
+            reader = csv.DictReader(text_stream, dialect=dialect, skipinitialspace=True)
+            parsed_rows = list(reader)
 
-            for row in reader:
+            invalid_date_rows: list[int] = []
+            for row_idx, row in enumerate(parsed_rows, start=2):
+                date_cell = _normalized_cell(
+                    row,
+                    "date",
+                    "transaction date",
+                    "posted date",
+                    "value date",
+                )
+                if _parse_csv_date(date_cell) is None:
+                    invalid_date_rows.append(row_idx)
+
+            if invalid_date_rows:
+                await update.message.reply_text(
+                    "*CSV date format is incorrect.*\n"
+                    "Please use *DD/MM/YYYY* for all rows (for example: *18/04/2026*).",
+                    parse_mode="Markdown",
+                )
+                return
+
+            for row in parsed_rows:
                 try:
-                    date_str = (
-                        row.get("date") or row.get("Date") or ""
-                    ).strip() or None
-                    amount_str = (row.get("amount") or row.get("Amount") or "").strip()
-                    description = (
-                        row.get("description") or row.get("Description") or ""
-                    ).strip()
+                    date_cell = _normalized_cell(
+                        row,
+                        "date",
+                        "transaction date",
+                        "posted date",
+                        "value date",
+                    )
+                    amount_str = _normalized_cell(
+                        row,
+                        "amount",
+                        "transaction amount",
+                        "total",
+                        "value",
+                    )
+                    description = _normalized_cell(
+                        row,
+                        "description",
+                        "descriptio",
+                        "details",
+                        "transaction description",
+                        "memo",
+                        "narrative",
+                    )
 
                     if not amount_str or not description:
                         continue
 
-                    amount = float(amount_str)
+                    amount = _parse_csv_amount(amount_str)
+                    if amount is None:
+                        continue
+
+                    parsed_date = _parse_csv_date(date_cell)
 
                     # Determine a human-readable type for the transaction.
-                    type_cell = (row.get("type") or row.get("Type") or "").strip()
+                    type_cell = _normalized_cell(
+                        row,
+                        "type",
+                        "category",
+                        "transaction type",
+                    )
                     if type_cell:
                         t = type_cell.lower()
                     else:
@@ -88,7 +226,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     transaction_rows.append(
                         (
                             user_id,
-                            date_str,
+                            parsed_date,
                             description,
                             amount,
                             entry_type,
