@@ -41,7 +41,7 @@ async def _set_bot_commands(application: Application) -> None:
             BotCommand("import", "Upload a CSV file to import your expenses"),
             BotCommand("rules", "View or update budget and savings rules"),
             BotCommand("summary", "View total spending + quick insights"),
-            BotCommand("destroy", "Delete your expenses and transactions data"),
+            # BotCommand("destroy", "Delete your expenses and transactions data"),
         ]
     )
 

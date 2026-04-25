@@ -212,13 +212,13 @@ def _csv_import_instructions_text() -> str:
 
 def _manual_entry_template_text() -> str:
     return (
-        "Template (copy, fill, send):\n"
-        "[description], [amount], [type]\n"
-        "Type is optional. If omitted, it defaults to expense.\n\n"
-        "Examples:\n"
-        "- Coffee, 3.50, expense\n"
-        "- Salary, 1500, income\n"
-        "- Lunch, 8.25"
+        "*Template (copy, fill, send)*\n"
+        "`description, amount, type`\n"
+        "_Type is optional. If omitted, it defaults to expense._\n\n"
+        "*Examples*\n"
+        "- `Coffee, 3.50, expense`\n"
+        "- `Salary, 1500, income`\n"
+        "- `Lunch, 8.25`"
     )
 
 
@@ -1551,12 +1551,13 @@ async def handle_button_callback(
             await _safe_edit(
                 status_message,
                 "🚀 *Awesome, you're all set!*\n\n"
-                "Send one transaction per message using:\n"
+                "🧾 *One transaction per message*\n"
+                "Use this format:\n"
                 "`description, amount, type`\n"
-                "(or else my tiny robot brain will panic and pretend it's Monday all over again 🤖)\n\n"
+                "_or my tiny robot brain will panic and pretend it's Monday all over again 🤖_\n\n"
                 + _manual_entry_template_text()
                 + "\n\n"
-                "Send your first entry now.",
+                "*Send your first entry now.*",
                 parse_mode="Markdown",
             )
         elif data == "send_csv":
