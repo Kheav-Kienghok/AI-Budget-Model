@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional, cast, Any
+from typing import Optional, cast, Any, Mapping
+import json
 
 import psycopg
 from psycopg.rows import dict_row
@@ -81,6 +82,32 @@ class Database:
                 type TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
+            """,
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_budget_rules (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL UNIQUE,
+                budget_rules JSONB DEFAULT '{}'::jsonb,
+                savings_rule REAL DEFAULT 20.0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+            """,
+        )
+        cur.execute(
+            """
+            ALTER TABLE user_budget_rules
+            ALTER COLUMN budget_rules SET DEFAULT
+            '{"Food": 20.0, "Transportation": 8.0, "Entertainment": 5.0, "Utilities": 8.0, "Rent": 25.0, "Other": 7.0}'::jsonb
+            """,
+        )
+        cur.execute(
+            """
+            ALTER TABLE user_budget_rules
+            ALTER COLUMN savings_rule SET DEFAULT 20.0
             """,
         )
         connection.commit()
@@ -244,6 +271,86 @@ class Database:
 
         connection.commit()
         return deleted_expenses, deleted_transactions
+
+    def set_budget_rules(
+        self, user_id: int, budget_rules: dict[str, float], savings_rule: float
+    ) -> None:
+        """Store or update budget rules and savings rule for a user.
+
+        Args:
+            user_id: The user's Telegram ID
+            budget_rules: Dictionary of category -> budget amount (e.g., {"Food": 20, "Transport": 8})
+            savings_rule: Savings percentage target (e.g., 25 for 25%)
+        """
+        import json
+
+        connection = self._get_connection()
+        cur = connection.cursor()
+
+        rules_json = json.dumps(budget_rules)
+
+        cur.execute(
+            """
+            INSERT INTO user_budget_rules (user_id, budget_rules, savings_rule, updated_at)
+            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id) DO UPDATE SET
+                budget_rules = EXCLUDED.budget_rules,
+                savings_rule = EXCLUDED.savings_rule,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, rules_json, savings_rule),
+        )
+        connection.commit()
+
+    def get_budget_rules(self, user_id: int) -> tuple[dict[str, float], float] | None:
+        """Retrieve budget rules and savings rule for a user.
+
+        Returns:
+            A tuple of (budget_rules_dict, savings_rule_percentage) or None if not found.
+        """
+
+        connection = self._get_connection()
+        cur = connection.cursor()
+        cur.execute(
+            """
+            SELECT budget_rules, savings_rule
+            FROM user_budget_rules
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+
+        if row is None:
+            return None
+
+        row = cast(Mapping[str, Any], row)
+
+        raw_budget_rules = row["budget_rules"]
+        if not raw_budget_rules:
+            budget_rules: dict[str, float] = {}
+        elif isinstance(raw_budget_rules, Mapping):
+            budget_rules = {
+                str(key): float(value)
+                for key, value in raw_budget_rules.items()
+                if value is not None
+            }
+        elif isinstance(raw_budget_rules, (str, bytes, bytearray)):
+            loaded_rules = json.loads(raw_budget_rules)
+            if isinstance(loaded_rules, Mapping):
+                budget_rules = {
+                    str(key): float(value)
+                    for key, value in loaded_rules.items()
+                    if value is not None
+                }
+            else:
+                budget_rules = {}
+        else:
+            budget_rules = {}
+
+        savings_rule = float(row["savings_rule"]) if row["savings_rule"] else 20.0
+
+        return budget_rules, savings_rule
 
     def close(self) -> None:
         if self._connection is not None:

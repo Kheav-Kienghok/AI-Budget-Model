@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from io import BytesIO
 from typing import SupportsFloat
 
@@ -19,6 +20,24 @@ from ..external import fetch_binary_from_external, send_json_payload
 from ..utils_pkg import get_user_identifiers
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_RULES_ORDER = (
+    "Food",
+    "Transportation",
+    "Entertainment",
+    "Utilities",
+    "Rent",
+    "Other",
+)
+
+_RULE_KEY_MAP = {
+    "food": "Food",
+    "transportation": "Transportation",
+    "entertainment": "Entertainment",
+    "utilities": "Utilities",
+    "rent": "Rent",
+    "other": "Other",
+}
 
 
 async def _safe_reply(message: Message | None, text: str, **kwargs) -> None:
@@ -113,6 +132,20 @@ def _csv_followup_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _customization_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for asking if user wants to customize budget & saving rules."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ Yes, let's customize!", callback_data="customize_yes"
+                )
+            ],
+            [InlineKeyboardButton("⏭️ Skip for now", callback_data="customize_no")],
+        ]
+    )
+
+
 def _welcome_text() -> str:
     lines = [
         "💰 *Expense Buddy*",
@@ -139,6 +172,9 @@ def _help_text() -> str:
         '- Tap *"🚀 Start now"*.',
         "- Send one record per message in this format:",
         "  `description, amount, type`",
+        "- Copy this template and replace the values:",
+        "  `[description], [amount], [type]`",
+        "- `type` is optional (defaults to `expense`).",
         "",
         "*Examples*",
         "- `Coffee, 3.50, expense`",
@@ -153,6 +189,11 @@ def _help_text() -> str:
         "- Export your transactions from your bank/spreadsheet.",
         '- Tap *"📂 Upload a file"* and send it here.',
         "- Supported right now: *CSV only*.",
+        "",
+        "*3) Update budget and savings rules*",
+        "- Use */rules* to view your current rules.",
+        "- Use this format to update all rules:",
+        "  `/rules food=20 transportation=8 entertainment=5 utilities=8 rent=25 other=7 savings=20`",
     ]
     return "\n".join(lines)
 
@@ -169,10 +210,334 @@ def _csv_import_instructions_text() -> str:
     )
 
 
+def _manual_entry_template_text() -> str:
+    return (
+        "Template (copy, fill, send):\n"
+        "[description], [amount], [type]\n"
+        "Type is optional. If omitted, it defaults to expense.\n\n"
+        "Examples:\n"
+        "- Coffee, 3.50, expense\n"
+        "- Salary, 1500, income\n"
+        "- Lunch, 8.25"
+    )
+
+
+def _get_default_budget_rules() -> tuple[dict[str, float], float]:
+    """Return default budget rules and savings rule.
+
+    Returns:
+        A tuple of (budget_rules_dict, savings_rule_percentage)
+    """
+    default_budget_rules = {
+        "Food": 20.0,
+        "Transportation": 8.0,
+        "Entertainment": 5.0,
+        "Utilities": 8.0,
+        "Rent": 25.0,
+        "Other": 7.0,
+    }
+    default_savings_rule = 20.0
+    return default_budget_rules, default_savings_rule
+
+
+def _format_rules_text(budget_rules: dict[str, float], savings_rule: float) -> str:
+    total_budget = 0.0
+    lines = [
+        "📐 *Your Rules*",
+        "",
+        "*Budget Rules (%)*",
+    ]
+
+    for key in _ALLOWED_RULES_ORDER:
+        value = float(budget_rules.get(key, 0.0))
+        total_budget += value
+        lines.append(f"• {key}: {value:.1f}%")
+
+    lines.extend(
+        [
+            "",
+            f"*Savings Rule*: {float(savings_rule):.1f}%",
+            f"*Total (Budget + Savings)*: {total_budget + float(savings_rule):.1f}%",
+            "",
+            "*Update Template (copy, fill, send)*",
+            "`/rules food=[%] transportation=[%] entertainment=[%] utilities=[%] rent=[%] other=[%] savings=[%]`",
+            "",
+            "*Example*",
+            "`/rules food=25 transportation=8 entertainment=10 utilities=10 rent=25 other=10 savings=12`",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
+def _parse_rules_args(args: list[str]) -> tuple[dict[str, float], float] | str:
+    parsed_budget: dict[str, float] = {}
+    savings_rule: float | None = None
+
+    for raw in args:
+        token = raw.strip().rstrip(",")
+        if not token:
+            continue
+
+        if "=" in token:
+            key_raw, value_raw = token.split("=", 1)
+        elif ":" in token:
+            key_raw, value_raw = token.split(":", 1)
+        else:
+            return (
+                "Invalid format. Use key=value pairs, for example: "
+                "food=20 transportation=8 ... savings=20"
+            )
+
+        key = key_raw.strip().strip("\"'").lower()
+        value_text = value_raw.strip().strip("\"'").rstrip("%")
+
+        try:
+            value = float(value_text)
+        except ValueError:
+            return (
+                f"Invalid numeric value for '{key_raw.strip()}': '{value_raw.strip()}'."
+            )
+
+        if value < 0 or value > 100:
+            return f"Value for '{key_raw.strip()}' must be between 0 and 100."
+
+        if key in ("saving", "savings", "savings_rule"):
+            savings_rule = value
+            continue
+
+        canonical = _RULE_KEY_MAP.get(key)
+        if canonical is None:
+            allowed = ", ".join(_RULE_KEY_MAP.keys())
+            return f"Unsupported rule key '{key_raw.strip()}'. Allowed keys: {allowed}, savings."
+
+        parsed_budget[canonical] = value
+
+    missing_rules = [name for name in _ALLOWED_RULES_ORDER if name not in parsed_budget]
+    if missing_rules:
+        return (
+            "You must provide all budget categories: "
+            + ", ".join(_ALLOWED_RULES_ORDER)
+            + "."
+        )
+
+    if savings_rule is None:
+        return "You must provide savings, e.g. savings=20."
+
+    total = sum(parsed_budget.values()) + savings_rule
+    if total > 100:
+        return f"Total budget + savings is {total:.1f}%. It must not exceed 100%."
+
+    if total < 0:
+        return "Total budget + savings must be 0 or greater."
+
+    return parsed_budget, savings_rule
+
+
+def _customization_offer_text(first_name: str | None = None) -> str:
+    """Text offering first-time users to customize budget & saving rules."""
+    name = first_name or "there"
+    lines = [
+        "🎯 *Personalize Your Budget & Savings Goals?*",
+        "",
+        f"Welcome, {name}! I'm excited to help you manage your finances. 💪",
+        "",
+        "Before we get started, would you like to customize your:",
+        "• *Budget Rules* - Set spending percentages per category (e.g., 'Food = 25%')",
+        "• *Saving Rules* - Define savings goals and targets (e.g., 'Save 20% of income')",
+        "",
+        "*Quick setup* (2-3 minutes) → Tailored insights just for you ✨",
+        "",
+        "Or skip for now and use *default settings* → You can customize anytime!",
+    ]
+    return "\n".join(lines)
+
+
+def _customization_started_text() -> str:
+    """Text shown when user chooses to customize."""
+    lines = [
+        "✅ *Great! Let's personalize your rules*",
+        "",
+        "I'll guide you through a few quick questions:",
+        "",
+        "**Step 1: Budget Rules** 💰",
+        "Tell me your budget percentages by category:",
+        "• Food",
+        "• Transportation",
+        "• Entertainment",
+        "• Rent",
+        "• Utilities",
+        "• Other",
+        "",
+        "*Template*",
+        "`Category Percent%`",
+        "",
+        "*Copy-ready example (all categories)*",
+        "`Food 25%`",
+        "`Transportation 8%`",
+        "`Entertainment 10%`",
+        "`Rent 25%`",
+        "`Utilities 10%`",
+        "`Other 10%`",
+        "",
+        "_I will store only the number (for example, `25` from `Food 25%`)._",
+        "_You can also use: `category, percent` (e.g., `Food, 25`)._",
+        "_Or type 'skip' to use defaults_",
+        "",
+        "*What category would you like to set a limit for?*",
+        "_(Or type 'done' to move to savings rules)_",
+    ]
+    return "\n".join(lines)
+
+
+def _customization_savings_prompt_text(budget_rules: dict[str, float]) -> str:
+    total_budget = sum(float(v) for v in budget_rules.values())
+    remaining = max(0.0, 100.0 - total_budget)
+    lines = [
+        "✅ *Budget rules captured.*",
+        "",
+        "**Step 2: Savings Rule** 🎯",
+        f"Current budget total: *{total_budget:.1f}%*",
+        f"Remaining available (max savings): *{remaining:.1f}%*",
+        "",
+        "Reply with savings percentage, for example:",
+        "- `20`",
+        "- `savings, 20`",
+        "- `rest` (auto-use the remaining percentage)",
+    ]
+    return "\n".join(lines)
+
+
+def _parse_category_percent_input(text: str) -> tuple[str, float] | str:
+    cleaned = text.strip()
+    category_raw = ""
+    value_raw = ""
+
+    # Support both "Food, 25" and "Food 25%".
+    if "," in cleaned:
+        parts = [p.strip() for p in cleaned.split(",", 1)]
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            return "Invalid format. Use `Food 25%` or `Food, 25`."
+        category_raw, value_raw = parts
+    else:
+        match = re.match(r"^(.+?)\s+(-?\d+(?:\.\d+)?)\s*%?$", cleaned)
+        if match is None:
+            return "Invalid format. Use `Food 25%` or `Food, 25`."
+        category_raw = match.group(1).strip()
+        value_raw = match.group(2).strip()
+
+    category_key = category_raw.strip().lower()
+    category = _RULE_KEY_MAP.get(category_key)
+    if category is None:
+        return (
+            "Invalid category. Use one of: Food, Transportation, "
+            "Entertainment, Utilities, Rent, Other."
+        )
+
+    try:
+        value = float(value_raw.strip().rstrip("%"))
+    except ValueError:
+        return "Percent must be a number, for example `Food 25%`."
+
+    if value < 0 or value > 100:
+        return "Percent must be between 0 and 100."
+
+    return category, value
+
+
+def _parse_budget_entries_input(text: str) -> list[tuple[str, float]] | str:
+    """Parse one or many budget entries from a user message.
+
+    Supported examples:
+    - Food 25%
+    - Food, 25
+    - Food 25\nTransportation 8\nRent 25
+    """
+
+    entries: list[tuple[str, float]] = []
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return "Please send at least one category and percentage."
+
+    for line_no, line in enumerate(lines, start=1):
+        parsed = _parse_category_percent_input(line)
+        if isinstance(parsed, str):
+            return f"Line {line_no}: {parsed}"
+        entries.append(parsed)
+
+    return entries
+
+
+def _budget_progress_text(
+    budget_rules: dict[str, float], touched_categories: set[str]
+) -> str:
+    entered_total = sum(float(budget_rules.get(k, 0.0)) for k in touched_categories)
+    full_total = sum(float(budget_rules.get(k, 0.0)) for k in _ALLOWED_RULES_ORDER)
+    return (
+        f"Your entered categories total: *{entered_total:.1f}%*.\n"
+        f"\nFull budget total (including defaults for untouched categories): *{full_total:.1f}%*."
+    )
+
+
+def _parse_savings_input(text: str) -> float | str:
+    value_text = text.strip()
+    if "," in value_text:
+        parts = [p.strip() for p in value_text.split(",")]
+        if len(parts) == 2 and parts[0].lower() in {
+            "saving",
+            "savings",
+            "savings_rule",
+        }:
+            value_text = parts[1]
+
+    try:
+        value = float(value_text.rstrip("%"))
+    except ValueError:
+        return "Savings must be a number, for example `20` or `savings, 20`."
+
+    if value < 0 or value > 100:
+        return "Savings must be between 0 and 100."
+
+    return value
+
+
+def _default_rules_text() -> str:
+    """Text shown when user skips customization and uses defaults."""
+    lines = [
+        "✅ *No problem!*",
+        "",
+        "I'll start you with **smart default settings**:",
+        "",
+        "**Default Budget Rules (Percentages)** 📊",
+        "• Food: 20%",
+        "• Transportation: 8%",
+        "• Entertainment: 5%",
+        "• Utilities: 8%",
+        "• Rent: 25%",
+        "• Other: 7%",
+        "",
+        "**Default Saving Rules** 🎯",
+        "• Savings Target: 20% of monthly income",
+        "",
+        "💡 *You can adjust these anytime!* Just ask me to update your rules.",
+        "",
+        "Ready to start? Let's go! 🚀",
+    ]
+    return "\n".join(lines)
+
+
 def _build_insights_payload(
-    transactions: list[dict], expenses: list[dict]
-) -> list[dict[str, object]]:
-    """Build a single insights payload from transactions and expenses tables.
+    transactions: list[dict],
+    expenses: list[dict],
+    budget_rules: dict[str, float] | None = None,
+    savings_rule: float | None = None,
+) -> dict[str, object]:
+    """Build insights payload from transactions, expenses, and budget rules.
+
+    Returns a dictionary with:
+    - transactions: list of transaction items
+    - budget_rules: dictionary of category budgets
+    - savings_rule: savings percentage target
 
     Rules:
     - From transactions: use date, description, amount, type (lowercase).
@@ -220,7 +585,17 @@ def _build_insights_payload(
             }
         )
 
-    return items
+    # Build the complete payload
+    default_budget_rules, default_savings_rule = _get_default_budget_rules()
+    payload: dict[str, object] = {
+        "transactions": items,
+        "budget_rules": budget_rules or default_budget_rules,
+        "savings_rule": (
+            savings_rule if savings_rule is not None else default_savings_rule
+        ),
+    }
+
+    return payload
 
 
 def _format_insights_markdown(response: dict[str, object]) -> str:
@@ -474,12 +849,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
 
-    await _safe_reply(
-        update.message,
-        _welcome_text(),
-        reply_markup=_main_menu_keyboard(),
-        parse_mode="Markdown",
-    )
+    if context.user_data is None:
+        context.user_data = {}
+
+    if not context.user_data.get("customization_handled"):
+        context.user_data["customization_handled"] = True
+        await _safe_reply(
+            update.message,
+            _customization_offer_text(first_name),
+            reply_markup=_customization_keyboard(),
+            parse_mode="Markdown",
+        )
+    else:
+        await _safe_reply(
+            update.message,
+            _welcome_text(),
+            reply_markup=_main_menu_keyboard(),
+            parse_mode="Markdown",
+        )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -533,7 +920,13 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await help_command(update, context)
         return
 
-    items = _build_insights_payload(transactions, expenses)
+    # Fetch user's budget rules
+    budget_rules_data = db.get_budget_rules(user_id)
+    budget_rules, savings_rule = _get_default_budget_rules()
+    if budget_rules_data:
+        budget_rules, savings_rule = budget_rules_data
+
+    items = _build_insights_payload(transactions, expenses, budget_rules, savings_rule)
 
     try:
         response = await send_json_payload(items, endpoint="/insights")
@@ -565,6 +958,76 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _safe_reply(update.message, text, parse_mode="Markdown")
 
 
+async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+
+    db: Database | None = context.application.bot_data.get("db")  # type: ignore[assignment]
+    user_id, _, first_name, last_name = get_user_identifiers(update)
+
+    if db is None or user_id is None:
+        await _safe_reply(
+            update.message,
+            "Sorry, I couldn't access your data right now. Please try again later.",
+        )
+        return
+
+    # Ensure user exists so rules can always be inserted.
+    try:
+        username = update.effective_user.username if update.effective_user else None
+        db.ensure_user(user_id, username, first_name, last_name)
+    except Exception:
+        logger.exception("Failed to ensure user before updating rules")
+
+    args = context.args or []
+    if not args:
+        rules = db.get_budget_rules(user_id)
+        if rules is None:
+            budget_rules, savings_rule = _get_default_budget_rules()
+            db.set_budget_rules(user_id, budget_rules, savings_rule)
+        else:
+            budget_rules, savings_rule = rules
+
+        await _safe_reply(
+            update.message,
+            _format_rules_text(budget_rules, savings_rule),
+            parse_mode="Markdown",
+        )
+        return
+
+    parsed = _parse_rules_args(args)
+    if isinstance(parsed, str):
+        await _safe_reply(
+            update.message,
+            "❌ "
+            + parsed
+            + "\n\n"
+            + "Use this format:\n"
+            + "`/rules food=20 transportation=8 entertainment=5 utilities=8 rent=25 other=7 savings=20`",
+            parse_mode="Markdown",
+        )
+        return
+
+    budget_rules, savings_rule = parsed
+
+    try:
+        db.set_budget_rules(user_id, budget_rules, savings_rule)
+    except Exception:
+        logger.exception("Failed to save rules")
+        await _safe_reply(
+            update.message,
+            "Sorry, something went wrong while saving your rules.",
+        )
+        return
+
+    await _safe_reply(
+        update.message,
+        "✅ Rules updated successfully.\n\n"
+        + _format_rules_text(budget_rules, savings_rule),
+        parse_mode="Markdown",
+    )
+
+
 async def handle_manual_text(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -579,13 +1042,344 @@ async def handle_manual_text(
 
     text = update.message.text.strip()
 
-    # Only act if the user chose "Start now".
+    # Fallback: sometimes slash commands arrive as plain text (no command entity).
+    # Route /rules manually so users still get the correct behavior.
+    tokens = text.split()
+    if tokens and tokens[0].startswith("/"):
+        command_token = tokens[0].split("@", 1)[0].lower()
+        if command_token == "/rules":
+            previous_args = context.args
+            context.args = tokens[1:]
+            try:
+                await rules_command(update, context)
+            finally:
+                context.args = previous_args
+            return
+
+        # For any other slash command text, do not treat it as manual transaction input.
+        return
+
     user_data = context.user_data or {}
+    if user_data.get("customization_in_progress"):
+        db: Database | None = context.application.bot_data.get("db")  # type: ignore[assignment]
+        user_id, _, first_name, last_name = get_user_identifiers(update)
+
+        if db is None or user_id is None:
+            await _safe_reply(
+                update.message,
+                "Sorry, I couldn't update your rules right now. Please try again later.",
+            )
+            return
+
+        mode = str(user_data.get("customization_stage") or "budget")
+        current_budget = user_data.get("custom_budget_rules")
+        if not isinstance(current_budget, dict):
+            defaults, _ = _get_default_budget_rules()
+            current_budget = defaults.copy()
+            user_data["custom_budget_rules"] = current_budget
+
+        lowered = text.lower().strip()
+        if lowered == "skip":
+            default_budget, default_savings = _get_default_budget_rules()
+            try:
+                db.ensure_user(
+                    user_id,
+                    update.effective_user.username if update.effective_user else None,
+                    first_name,
+                    last_name,
+                )
+                db.set_budget_rules(user_id, default_budget, default_savings)
+            except Exception:
+                logger.exception("Failed to set default rules from customization flow")
+                await _safe_reply(
+                    update.message,
+                    "Sorry, something went wrong while saving defaults.",
+                )
+                return
+
+            user_data.pop("customization_in_progress", None)
+            user_data.pop("customization_stage", None)
+            user_data.pop("custom_budget_rules", None)
+            user_data.pop("custom_budget_touched_categories", None)
+            user_data.pop("awaiting_missing_budget_defaults_confirmation", None)
+            await _safe_reply(
+                update.message, _default_rules_text(), parse_mode="Markdown"
+            )
+            await _safe_reply(
+                update.message,
+                _welcome_text(),
+                reply_markup=_main_menu_keyboard(),
+                parse_mode="Markdown",
+            )
+            return
+
+        if mode == "budget":
+            if user_data.get("awaiting_missing_budget_defaults_confirmation"):
+                if lowered in {"yes", "y", "default", "use default", "ok", "okay"}:
+                    user_data.pop("awaiting_missing_budget_defaults_confirmation", None)
+                    user_data["customization_stage"] = "savings"
+                    remaining = max(
+                        0.0,
+                        100.0
+                        - sum(
+                            float(current_budget.get(k, 0.0))
+                            for k in _ALLOWED_RULES_ORDER
+                        ),
+                    )
+                    await _safe_reply(
+                        update.message,
+                        "✅ Great, I will keep default values for the missing categories.\n"
+                        f"The remaining *{remaining:.1f}%* can go to savings (type `rest`).\n\n"
+                        + _customization_savings_prompt_text(current_budget),
+                        parse_mode="Markdown",
+                    )
+                    return
+
+                # If user sends categories instead of "yes", accept them directly.
+                pending_entries = _parse_budget_entries_input(text)
+                if not isinstance(pending_entries, str):
+                    updated_budget = {
+                        key: float(current_budget.get(key, 0.0))
+                        for key in _ALLOWED_RULES_ORDER
+                    }
+                    for category, percent in pending_entries:
+                        updated_budget[category] = percent
+
+                    budget_total = sum(updated_budget.values())
+                    if budget_total > 100:
+                        await _safe_reply(
+                            update.message,
+                            (
+                                f"❌ Budget total becomes *{budget_total:.1f}%* which exceeds 100%. "
+                                "Please lower some categories."
+                            ),
+                            parse_mode="Markdown",
+                        )
+                        return
+
+                    user_data["custom_budget_rules"] = updated_budget
+                    touched_raw = user_data.get(
+                        "custom_budget_touched_categories", set()
+                    )
+                    touched = (
+                        set(touched_raw) if isinstance(touched_raw, set) else set()
+                    )
+                    touched.update(category for category, _ in pending_entries)
+                    user_data["custom_budget_touched_categories"] = touched
+                    user_data.pop("awaiting_missing_budget_defaults_confirmation", None)
+                    progress_text = _budget_progress_text(updated_budget, touched)
+
+                    if len(pending_entries) == 1:
+                        category, percent = pending_entries[0]
+                        reply_text = (
+                            f"✅ *{category}* set to *{percent:.1f}%*.\n"
+                            + progress_text
+                            + "\n"
+                            "Send another entry like `Food 25%`, or type `done` for savings."
+                        )
+                    else:
+                        updated_lines = [
+                            f"- *{category}*: *{percent:.1f}%*"
+                            for category, percent in pending_entries
+                        ]
+                        reply_text = (
+                            "✅ *Budget categories updated:*\n\n"
+                            + "\n".join(updated_lines)
+                            + "\n"
+                            + progress_text
+                            + "\n\n"
+                            + "Send more entries (you can send multiple lines), or type `done` for savings."
+                        )
+
+                    await _safe_reply(update.message, reply_text, parse_mode="Markdown")
+                    return
+
+                user_data.pop("awaiting_missing_budget_defaults_confirmation", None)
+                await _safe_reply(
+                    update.message,
+                    "No problem. Please send the missing categories now.\n"
+                    "Format: `Food 25%` or `Food, 25`\n"
+                    "You can send multiple lines in one message.",
+                    parse_mode="Markdown",
+                )
+                return
+
+            if lowered == "done":
+                touched_raw = user_data.get("custom_budget_touched_categories", set())
+                touched = set(touched_raw) if isinstance(touched_raw, set) else set()
+                missing_categories = [
+                    category
+                    for category in _ALLOWED_RULES_ORDER
+                    if category not in touched
+                ]
+
+                if missing_categories:
+                    user_data["awaiting_missing_budget_defaults_confirmation"] = True
+                    remaining = max(
+                        0.0,
+                        100.0
+                        - sum(
+                            float(current_budget.get(k, 0.0))
+                            for k in _ALLOWED_RULES_ORDER
+                        ),
+                    )
+                    await _safe_reply(
+                        update.message,
+                        "⚠️ You have not set all categories yet.\n"
+                        f"Missing: *{', '.join(missing_categories)}*\n\n"
+                        "Reply `yes` to use default values for missing categories,\n"
+                        "or send the missing categories now.\n"
+                        f"If you use defaults, the remaining *{remaining:.1f}%* can go to savings.",
+                        parse_mode="Markdown",
+                    )
+                    return
+
+                user_data["customization_stage"] = "savings"
+                await _safe_reply(
+                    update.message,
+                    _customization_savings_prompt_text(current_budget),
+                    parse_mode="Markdown",
+                )
+                return
+
+            parsed_budget_entries = _parse_budget_entries_input(text)
+            if isinstance(parsed_budget_entries, str):
+                await _safe_reply(
+                    update.message,
+                    f"❌ {parsed_budget_entries}",
+                    parse_mode="Markdown",
+                )
+                return
+
+            updated_budget = {
+                key: float(current_budget.get(key, 0.0)) for key in _ALLOWED_RULES_ORDER
+            }
+            for category, percent in parsed_budget_entries:
+                updated_budget[category] = percent
+
+            budget_total = sum(updated_budget.values())
+            if budget_total > 100:
+                await _safe_reply(
+                    update.message,
+                    (
+                        f"❌ Budget total becomes *{budget_total:.1f}%* which exceeds 100%. "
+                        "Please lower some categories."
+                    ),
+                    parse_mode="Markdown",
+                )
+                return
+
+            user_data["custom_budget_rules"] = updated_budget
+            touched_raw = user_data.get("custom_budget_touched_categories", set())
+            touched = set(touched_raw) if isinstance(touched_raw, set) else set()
+            touched.update(category for category, _ in parsed_budget_entries)
+            user_data["custom_budget_touched_categories"] = touched
+            user_data.pop("awaiting_missing_budget_defaults_confirmation", None)
+            progress_text = _budget_progress_text(updated_budget, touched)
+
+            if len(parsed_budget_entries) == 1:
+                category, percent = parsed_budget_entries[0]
+                reply_text = (
+                    f"✅ *{category}* set to *{percent:.1f}%*.\n" + progress_text + "\n"
+                    "Send another entry like `Food 25%`, or type `done` for savings."
+                )
+            else:
+                updated_lines = [
+                    f"- *{category}*: *{percent:.1f}%*"
+                    for category, percent in parsed_budget_entries
+                ]
+                reply_text = (
+                    "✅ *Budget categories updated:*\n\n"
+                    + "\n".join(updated_lines)
+                    + "\n"
+                    + progress_text
+                    + "\n\n"
+                    + "Send more entries (you can send multiple lines), or type `done` for savings."
+                )
+
+            await _safe_reply(update.message, reply_text, parse_mode="Markdown")
+            return
+
+        if mode == "savings":
+            budget_total = sum(
+                float(current_budget.get(k, 0.0)) for k in _ALLOWED_RULES_ORDER
+            )
+            remaining_savings = max(0.0, 100.0 - budget_total)
+
+            normalized_savings_text = lowered.replace("%", "").strip()
+            if normalized_savings_text in {
+                "rest",
+                "remaining",
+                "the rest",
+                "all",
+                "max",
+            }:
+                savings_value = remaining_savings
+            else:
+                parsed_savings = _parse_savings_input(text)
+                if isinstance(parsed_savings, str):
+                    await _safe_reply(
+                        update.message,
+                        f"❌ {parsed_savings}",
+                        parse_mode="Markdown",
+                    )
+                    return
+                savings_value = parsed_savings
+
+            grand_total = budget_total + savings_value
+            if grand_total > 100:
+                await _safe_reply(
+                    update.message,
+                    (
+                        f"❌ Budget + savings is *{grand_total:.1f}%* (max 100%).\n"
+                        f"Please enter savings <= *{max(0.0, 100.0 - budget_total):.1f}%*."
+                    ),
+                    parse_mode="Markdown",
+                )
+                return
+
+            try:
+                db.ensure_user(
+                    user_id,
+                    update.effective_user.username if update.effective_user else None,
+                    first_name,
+                    last_name,
+                )
+                db.set_budget_rules(user_id, current_budget, savings_value)
+            except Exception:
+                logger.exception("Failed to save customized rules")
+                await _safe_reply(
+                    update.message,
+                    "Sorry, something went wrong while saving your rules.",
+                )
+                return
+
+            user_data.pop("customization_in_progress", None)
+            user_data.pop("customization_stage", None)
+            user_data.pop("custom_budget_rules", None)
+            user_data.pop("custom_budget_touched_categories", None)
+            user_data.pop("awaiting_missing_budget_defaults_confirmation", None)
+
+            await _safe_reply(
+                update.message,
+                "✅ *Your rules are saved successfully!*\n\n"
+                + _format_rules_text(current_budget, savings_value),
+                parse_mode="Markdown",
+            )
+            await _safe_reply(
+                update.message,
+                _welcome_text(),
+                reply_markup=_main_menu_keyboard(),
+                parse_mode="Markdown",
+            )
+            return
+
+    # Only act if the user chose "Start now".
     if not user_data.get("manual_entry_mode"):
         await _safe_reply(
             update.message,
             "To start tracking manually, tap '🚀 Start now' below /start, "
-            "then send messages like: Coffee, 3.50, expense.",
+            "then send messages using this format:\n\n" + _manual_entry_template_text(),
         )
         return
 
@@ -593,10 +1387,7 @@ async def handle_manual_text(
     if len(parts) not in (2, 3):
         await _safe_reply(
             update.message,
-            "I didn't understand that. Please use one of these:\n"
-            "  description, amount, type\n"
-            "  description, amount  (I'll assume expense)\n"
-            "Examples:\n  Coffee, 3.50, expense\n  Salary, 1500, income\n  Gift from mom, 100",
+            "I didn't understand that.\n\n" + _manual_entry_template_text(),
         )
         return
 
@@ -623,7 +1414,7 @@ async def handle_manual_text(
         await _safe_reply(
             update.message,
             "The type should be 'income' or 'expense'.\n"
-            "Examples:\n  Coffee, 3.50, expense\n  Salary, 1500, income",
+            + _manual_entry_template_text(),
         )
         return
 
@@ -709,7 +1500,50 @@ async def handle_button_callback(
             "⏳ The app is processing your request..."
         )
 
-        if data == "begin_now":
+        if data == "customize_yes":
+            context.user_data["customization_in_progress"] = True
+            context.user_data["customization_stage"] = "budget"
+            context.user_data["manual_entry_mode"] = False
+            context.user_data["custom_budget_touched_categories"] = set()
+            context.user_data.pop("awaiting_missing_budget_defaults_confirmation", None)
+            user_id, _, _, _ = get_user_identifiers(update)
+            db: Database | None = context.application.bot_data.get("db")  # type: ignore[assignment]
+            if user_id is not None and db is not None:
+                default_budget_rules, default_savings_rule = _get_default_budget_rules()
+                context.user_data["custom_budget_rules"] = default_budget_rules.copy()
+                try:
+                    db.set_budget_rules(
+                        user_id, default_budget_rules, default_savings_rule
+                    )
+                except Exception:
+                    logger.exception("Failed to set budget rules during customization")
+            await _safe_edit(
+                status_message,
+                _customization_started_text(),
+                parse_mode="Markdown",
+            )
+        elif data == "customize_no":
+            user_id, _, _, _ = get_user_identifiers(update)
+            db: Database | None = context.application.bot_data.get("db")  # type: ignore[assignment]
+            if user_id is not None and db is not None:
+                default_budget_rules, default_savings_rule = _get_default_budget_rules()
+                try:
+                    db.set_budget_rules(
+                        user_id, default_budget_rules, default_savings_rule
+                    )
+                except Exception:
+                    logger.exception("Failed to set default budget rules")
+            await _safe_edit(
+                status_message,
+                _default_rules_text(),
+                parse_mode="Markdown",
+            )
+            await message.reply_text(
+                _welcome_text(),
+                reply_markup=_main_menu_keyboard(),
+                parse_mode="Markdown",
+            )
+        elif data == "begin_now":
 
             # Turn on manual entry mode for this user.
             context.user_data["manual_entry_mode"] = True
@@ -720,10 +1554,8 @@ async def handle_button_callback(
                 "Send one transaction per message using:\n"
                 "`description, amount, type`\n"
                 "(or else my tiny robot brain will panic and pretend it's Monday all over again 🤖)\n\n"
-                "*Examples*\n"
-                "- `Coffee, 3.50, expense`\n"
-                "- `Salary, 1500, income`\n"
-                "- `Lunch, 8.25` (type is optional; defaults to `expense`)\n\n"
+                + _manual_entry_template_text()
+                + "\n\n"
                 "Send your first entry now.",
                 parse_mode="Markdown",
             )
@@ -759,7 +1591,15 @@ async def handle_button_callback(
                 )
                 return
 
-            payload = _build_insights_payload(transactions, expenses)
+            # Fetch user's budget rules
+            budget_rules_data = db.get_budget_rules(user_id)
+            budget_rules, savings_rule = _get_default_budget_rules()
+            if budget_rules_data:
+                budget_rules, savings_rule = budget_rules_data
+
+            payload = _build_insights_payload(
+                transactions, expenses, budget_rules, savings_rule
+            )
 
             try:
                 response = await send_json_payload(payload, endpoint="/insights")
